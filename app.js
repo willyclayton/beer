@@ -38,7 +38,8 @@
     { id: "crisp", name: "Light & crisp", color: "#4FAEE0", test: (d) => mid(d.data.srm) <= 5 && mid(d.data.abv) <= 5.2 },
   ];
   const TICKS = [1000, 1500, 1600, 1700, 1800, 1850, 1900, 1950, 1980, 2000, 2010, 2020];
-  const T_LEN = 2600, LANE_GAP = 60, SANKEY_W = 300, COLLIDE = 19;
+  const LANE_GAP = 60, SANKEY_W = 300, COLLIDE = 19;
+  let T_LEN = 2600; // timeline length: set per viewport so the river fills the screen
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const DUR = reduceMotion ? 0 : 750;
   const INTRO_MS = 1700; // entrance: the timeline sweeps open over this long
@@ -348,7 +349,7 @@
   const P = (t, l) => (vertical ? [l, t] : [t, l]);
   const nodeXY = (s) => P(s.t, s.l);
   function worldBox() {
-    const t0 = -SANKEY_W - 70, t1 = T_LEN + 50, l0 = -30, l1 = L_LEN + 30;
+    const t0 = -SANKEY_W - (vertical ? 70 : 300), t1 = T_LEN + 50, l0 = -30, l1 = L_LEN + 30;
     return vertical ? { x0: l0, x1: l1, y0: t0, y1: t1 } : { x0: t0, x1: t1, y0: l0, y1: l1 };
   }
   function ribbonPath(t0, a0, a1, t1, b0, b1) {
@@ -598,7 +599,7 @@
   }
   function fitStyles(list, dur = DUR, focus = null) {
     if (!list.length) return;
-    fitBox(boxOf(list, list.length === 1 ? 220 : 70), { dur, maxZ: list.length === 1 ? 3 : 5, minZ: sidePanel() ? 1 : 1.5, focusXY: focus ? nodeXY(focus) : null });
+    fitBox(boxOf(list, list.length === 1 ? 220 : 70), { dur, maxZ: list.length === 1 ? 3 : 5, minZ: sidePanel() ? 0.65 : 1.5, focusXY: focus ? nodeXY(focus) : null });
   }
 
   function resize() {
@@ -614,7 +615,15 @@
     $("keyIntro").textContent = vertical
       ? "Time flows down the page. Fermentation types at the top feed eight family streams; each dot is a style."
       : "Time flows left to right. Fermentation types feed eight family streams; each dot is a style.";
-    if (vertical !== wasVertical || !drawn) { drawWorld(); drawn = true; }
+    // stretch the timeline to the screen's shape: wide screens get a long river that fills the width,
+    // phones get one about two screens tall to scroll through
+    const hv = viewRect(true), hvw = hv.x1 - hv.x0, hvh = hv.y1 - hv.y0;
+    const want = vertical
+      ? Math.max(2000, (hvh / hvw) * (L_LEN + 60) * 1.7 - SANKEY_W - 120)
+      : clamp((hvw / hvh) * (L_LEN + 60) - SANKEY_W - 350, 1800, 5200);
+    const relayout = Math.abs(want - T_LEN) / T_LEN > 0.06;
+    if (relayout) { T_LEN = want; layoutRiver(); }
+    if (relayout || vertical !== wasVertical || !drawn) { drawWorld(); drawn = true; }
     const v = viewRect(true), b = worldBox();
     homeK = vertical ? (v.x1 - v.x0) / (b.x1 - b.x0) : Math.min((v.x1 - v.x0) / (b.x1 - b.x0), (v.y1 - v.y0) / (b.y1 - b.y0));
     zoom.scaleExtent([homeK * 0.5, homeK * 14]).extent([[0, 0], [W, H]]);
@@ -623,7 +632,7 @@
   }
 
   const zoomFactor = () => clamp(Math.sqrt(transform.k / homeK), 0.8, 2.6);
-  const nodeR = (s) => (4.2 + Math.sqrt(s.nDesc) * 1.25) * zoomFactor();
+  const nodeR = (s) => (4.6 + Math.sqrt(s.nDesc) * 0.7) * zoomFactor();
   const blobR = (s) => nodeR(s) + 14 * zoomFactor() ** 1.25; // grows faster than dots so regions stay merged when zoomed in
 
   function update() {
@@ -662,7 +671,7 @@
 
   // greedy, priority-ordered label placement: only labels that fit are shown
   function placeLabels(pos, v, z, obstacles = []) {
-    const fs = clamp(10.5 * Math.sqrt(z), 10.5, 13.5);
+    const fs = clamp((vertical ? 11.5 : 12.5) * Math.sqrt(z), vertical ? 11.5 : 12.5, 15);
     const placed = obstacles.slice();
     const lit = litSet;
     const prio = (s) => (s === selected ? 1e6 : 0) + (lit && lit.has(s) ? 1e5 : 0) + (s === hovered || s === focused ? 2e5 : 0) + s.nDesc * 10 + (hasKids(s) ? 25 : 0) - s.labelW;
@@ -682,6 +691,8 @@
       if (x < v.x0 - 40 || x > v.x1 + 40 || y < v.y0 || y > v.y1 + 20) continue;
       if (s.t > introFront) continue; // entrance: labels arrive with their era
       if (lit && !lit.has(s)) continue; // when tracing a lineage, keep the noise down
+      // overview: only name the hubs (styles that spawned others); zoom in to see every name
+      if (!lit && s !== hovered && s !== focused && z < 1.45 && s.nDesc < 2) continue;
       const w = s.labelW * fs, r = nodeR(s), h = fs * 1.2;
       const right = { x: x + r + 4, y: y + fs * 0.35, a: "start", box: { x0: x + r + 2, x1: x + r + 6 + w, y0: y - h / 2, y1: y + h / 2 } };
       const left = { x: x - r - 4, y: y + fs * 0.35, a: "end", box: { x0: x - r - 6 - w, x1: x - r - 2, y0: y - h / 2, y1: y + h / 2 } };
@@ -719,7 +730,7 @@
       return { ln, name, w: measureCtx.measureText(name.toUpperCase()).width + name.length * tracking + 4, show: false };
     });
     if (vertical) {
-      const ends = [-1e9, -1e9, -1e9];
+      const ends = [-1e9];
       out.forEach((d) => {
         const real = transform.applyX(d.ln.mid);
         if (real < v.x0 - 8 || real > v.x1 + 8) return;
@@ -759,7 +770,7 @@
   function computeSourceLabels() {
     measureCtx.font = `800 12px ${FONT_STACK}`;
     const list = FERMENTS.filter((f) => f.count).map((fm) => {
-      const name = vertical ? SHORT_FERM[fm.id] : fm.name;
+      const name = SHORT_FERM[fm.id];
       const w = measureCtx.measureText(`${name} ${fm.count}`).width + 6;
       const [bx, by] = P(-SANKEY_W, (fm.l0 + fm.l1) / 2);
       return { fm, name, w, bx: transform.applyX(bx), by: transform.applyY(by) };

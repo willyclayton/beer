@@ -244,11 +244,11 @@ body.sheet-up .families { display: none; }
 #chart .grid line { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 6; vector-effect: non-scaling-stroke; }
 #chart .sankey .ribbon { fill-opacity: .2; transition: fill-opacity .35s; }
 #chart .sankey .source { fill-opacity: .9; }
-#chart .links path { fill: none; stroke-linecap: round; stroke-opacity: .55; transition: stroke-opacity .3s; }
-#chart .links path.inspired { stroke-dasharray: 6 5; stroke-opacity: .32; }
+#chart .links path { fill: none; stroke-linecap: round; stroke-opacity: .2; stroke-width: 1.3px; transition: stroke-opacity .3s, stroke-width .3s; }
+#chart .links path.inspired { stroke-dasharray: 6 5; stroke-opacity: 0; }
 #chart .links path.revival { stroke-dasharray: 1.5 5; }
 #chart .links path.dim { stroke-opacity: .07; }
-#chart .links path.hot { stroke-opacity: 1; }
+#chart .links path.hot { stroke-opacity: 1; stroke-width: 2.4px; }
 /* light pulses travelling parent → child along a traced lineage */
 #chart .flow path {
   fill: none; stroke: #fff; stroke-opacity: .85; stroke-linecap: round;
@@ -287,15 +287,16 @@ body.sheet-up .families { display: none; }
 #chart .labels text.sel { fill: var(--text); font-weight: 800; }
 
 /* dark: lines a touch stronger, trait regions add light instead of multiplying */
-:root[data-theme="dark"] #chart .links path:not(.dim):not(.inspired) { stroke-opacity: .72; }
-:root[data-theme="dark"] #chart .links path.inspired:not(.dim) { stroke-opacity: .45; }
+:root[data-theme="dark"] #chart .links path:not(.dim):not(.inspired) { stroke-opacity: .28; }
+:root[data-theme="dark"] #chart .links path.inspired:not(.dim) { stroke-opacity: 0; }
 :root[data-theme="dark"] #chart .blobs g { mix-blend-mode: screen; opacity: .8; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) #chart .links path:not(.dim):not(.inspired) { stroke-opacity: .72; }
-  :root:not([data-theme="light"]) #chart .links path.inspired:not(.dim) { stroke-opacity: .45; }
+  :root:not([data-theme="light"]) #chart .links path:not(.dim):not(.inspired) { stroke-opacity: .28; }
+  :root:not([data-theme="light"]) #chart .links path.inspired:not(.dim) { stroke-opacity: 0; }
   :root:not([data-theme="light"]) #chart .blobs g { mix-blend-mode: screen; opacity: .8; }
 }
-#chart .links path.lit { stroke-opacity: .95 !important; }
+#chart .links path.lit { stroke-opacity: .95 !important; stroke-width: 2.6px; }
+#chart .links path.lit.inspired { stroke-opacity: .8 !important; }
 
 #chart .overlay { pointer-events: none; }
 #chart .overlay .axis-bg, #chart .overlay .lane-bg { fill: var(--bg); fill-opacity: .86; }
