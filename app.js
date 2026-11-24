@@ -64,9 +64,9 @@
 
   // ---------- state ----------
   let root, nodes, styles, byId = new Map();
-  let W = 0, H = 0, homeK = 1, vertical = false, drawn = false, userMoved = false;
+  let W = 0, H = 0, homeK = 1, vertical = false, drawn = false;
   let transform = d3.zoomIdentity, lastFit = null, view = null;
-  let selected = null, hovered = null, litSet = null, litLinks = [], introFront = Infinity;
+  let selected = null, hovered = null, focused = null, litSet = null, litLinks = [], introFront = Infinity;
   const activeTraits = new Set();
   let panelState = "closed";
   let tScale, lanes = [], ribbons = [], L_LEN = 0, sankeyUnit = 1, linkData = [];
@@ -100,7 +100,7 @@
   // text colour for a family/source hue that keeps >= 4.5:1 against the page in the current theme
   const inkCache = new Map();
   function ink(hex) {
-    const dark = darkTheme(), key = hex + dark;
+    const dark = isDark, key = hex + dark;
     if (!inkCache.has(key)) {
       const bg = luminance(dark ? "#120f0c" : "#f7f2ea");
       const c = d3.lab(hex);
@@ -119,8 +119,9 @@
     if (t) return t === "dark";
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   };
+  let isDark = false; // cached: read on every zoom frame
   function syncThemeChrome() {
-    const dark = darkTheme();
+    const dark = isDark = darkTheme();
     $("themeBtn").setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", dark ? "#120f0c" : "#f7f2ea"));
   }
@@ -412,12 +413,13 @@
     const riverOrder = styles.slice().sort((a, b) => laneIdx(a) - laneIdx(b) || a.t - b.t);
     nodeSel = gNodes.selectAll("circle").data(riverOrder).join("circle")
       .attr("class", (s) => "node" + (famOf(s).data.id === "historical" ? " historical" : ""))
-      .attr("tabindex", -1)
+      .attr("tabindex", (s) => (isTabStop(s) ? 0 : -1))
       .attr("role", "button")
       .attr("aria-label", (s) => `${s.data.name}, ${s.data.yearLabel || s.year}, ${fmtRange(s.data.abv, "% ABV")}`)
       .on("click", (e, s) => { e.stopPropagation(); activate(s, e.detail === 0); })
       .on("keydown", (e, s) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(s, true); } })
-      .on("focus", (e, s) => panIntoView(s))
+      .on("focus", (e, s) => { focused = s; panIntoView(s); update(); })
+      .on("blur", () => { focused = null; update(); })
       .on("pointerenter", (e, s) => { if (canHover && e.pointerType === "mouse") setHover(s, e); })
       .on("pointermove", (e) => { if (canHover) moveTooltip(e); })
       .on("pointerleave", () => { if (canHover) setHover(null); });
@@ -428,7 +430,7 @@
       .clickDistance(8)
       .tapDistance(12)
       .constrain(constrain)
-      .on("start", (e) => { if (e.sourceEvent) { hint.classList.add("gone"); userMoved = true; } })
+      .on("start", (e) => { if (e.sourceEvent) hint.classList.add("gone"); })
       .on("zoom", (e) => { transform = e.transform; update(); });
     svg.call(zoom).on("dblclick.zoom", null);
     svg.on("click", (e) => {
@@ -567,7 +569,8 @@
   // fit a box (screen-space after zoom) into the view; remembers the request so it can be re-applied
   function fitBox(box, { dur = DUR, maxZ = 7, minZ = 0.9, alignStart = false, focusXY = null } = {}) {
     lastFit = () => fitBox(box, { dur: 0, maxZ, minZ, alignStart, focusXY });
-    const v = refreshView();
+    const v = { ...refreshView() };
+    if (vertical && !alignStart) v.y0 += 36; // room for the pinned lane names
     const vw = v.x1 - v.x0, vh = v.y1 - v.y0;
     const bw = Math.max(1, box.x1 - box.x0), bh = Math.max(1, box.y1 - box.y0);
     let k = alignStart && vertical ? vw / bw : Math.min(vw / bw, vh / bh) * 0.94;
@@ -577,11 +580,12 @@
     if (!fits && focusXY) {
       // box too big at a legible zoom: keep the chosen style in view, as close to the box centre as allowed
       const hw = vw / 2 / k, hh = vh / 2 / k;
-      cx = clamp(cx, focusXY[0] - hw * 0.7, focusXY[0] + hw * 0.7);
-      cy = clamp(cy, focusXY[1] - hh * 0.7, focusXY[1] + hh * 0.7);
+      cx = clamp(cx, focusXY[0] - hw * 0.5, focusXY[0] + hw * 0.5);
+      cy = clamp(cy, focusXY[1] - hh * 0.5, focusXY[1] + hh * 0.5);
     }
     let tx = (v.x0 + v.x1) / 2 - k * cx, ty = (v.y0 + v.y1) / 2 - k * cy;
-    if (alignStart && vertical) ty = v.y0 + 22 - k * box.y0;
+    // phones: a river taller than the screen starts at the top (scroll down through history); a shorter one is centred
+    if (alignStart && vertical && k * bh + 22 > vh) ty = v.y0 + 22 - k * box.y0;
     const t = d3.zoomIdentity.translate(tx, ty).scale(k);
     if (dur === 0) svg.interrupt().call(zoom.transform, t);
     else svg.transition().duration(dur).ease(d3.easeCubicInOut).call(zoom.transform, t);
@@ -661,7 +665,7 @@
     const fs = clamp(10.5 * Math.sqrt(z), 10.5, 13.5);
     const placed = obstacles.slice();
     const lit = litSet;
-    const prio = (s) => (s === selected ? 1e6 : 0) + (lit && lit.has(s) ? 1e5 : 0) + (s === hovered ? 2e5 : 0) + s.nDesc * 10 + (hasKids(s) ? 25 : 0) - s.labelW;
+    const prio = (s) => (s === selected ? 1e6 : 0) + (lit && lit.has(s) ? 1e5 : 0) + (s === hovered || s === focused ? 2e5 : 0) + s.nDesc * 10 + (hasKids(s) ? 25 : 0) - s.labelW;
     const order = styles.slice().sort((a, b) => prio(b) - prio(a));
     const hit = (r) => placed.some((q) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0);
     // dots are obstacles too, so labels never cover another beer
@@ -685,7 +689,9 @@
         : [{ x, y: y - r - 4, a: "middle", box: { x0: x - w / 2 - 2, x1: x + w / 2 + 2, y0: y - r - 4 - fs, y1: y - r - 1 } },
            { x, y: y + r + fs + 1, a: "middle", box: { x0: x - w / 2 - 2, x1: x + w / 2 + 2, y0: y + r, y1: y + r + fs + 4 } },
            right, left];
-      const c = cands.find((c) => c.box.x0 >= v.x0 - 4 && c.box.x1 <= v.x1 + 4 && c.box.y0 >= v.y0 - 2 && !hit(c.box));
+      const fits = (c) => c.box.x0 >= v.x0 - 4 && c.box.x1 <= v.x1 + 4 && c.box.y0 >= v.y0 - 2;
+      // the selected style is always named, even if that means overlapping a neighbour
+      const c = cands.find((c) => fits(c) && !hit(c.box)) || (s === selected ? cands.find(fits) : null);
       if (!c) continue;
       placed.push(c.box);
       shown.set(s, c);
@@ -864,10 +870,12 @@
     linkSel.filter((d) => litLinks.includes(d)).raise();
     gBands.selectAll("path").classed("dim", (ln) => !!litSet && !ln.members.some((s) => litSet.has(s)));
     gBlobs.classed("muted", !!litSet);
-    nodeSel.attr("tabindex", (s) => (litSet ? (litSet.has(s) ? 0 : -1) : s.parentLinks.length === 0 || s.nDesc >= 3 ? 0 : -1));
+    nodeSel.attr("tabindex", (s) => (isTabStop(s) ? 0 : -1));
     drawFlow();
     update();
   }
+  // Tab visits the lit lineage when one is traced, otherwise the roots and hubs of the river
+  const isTabStop = (s) => (litSet ? litSet.has(s) : s.parentLinks.length === 0 || s.nDesc >= 3);
   const lineageOf = (s) => new Set([s, ...s.ancestorSet, ...s.descendantSet]);
 
   function renderCrumbs(d) {

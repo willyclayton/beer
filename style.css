@@ -264,7 +264,7 @@ body.sheet-up .families { display: none; }
 
 #chart circle.node {
   cursor: pointer; stroke-width: 1.6; outline: none;
-  transition: opacity .3s, stroke-width .2s;
+  transition: opacity .3s, stroke-width .2s, transform .2s var(--ease-out);
   transform-box: fill-box; transform-origin: center;
 }
 #chart circle.node.historical { stroke-dasharray: 2 2; }
@@ -272,7 +272,10 @@ body.sheet-up .families { display: none; }
 @keyframes node-in { from { transform: scale(0); opacity: 0; } }
 #chart circle.node.dim { opacity: .16; }
 #chart circle.node.hovered { stroke: var(--accent); stroke-width: 2.6; }
-#chart circle.node:focus-visible { stroke: var(--accent); stroke-width: 3; stroke-dasharray: 4 2; }
+#chart circle.node:focus-visible {
+  stroke: var(--text); stroke-width: 3; stroke-dasharray: none; transform: scale(1.45);
+  filter: drop-shadow(0 0 3px var(--halo)) drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 80%, transparent));
+}
 #chart circle.node.selected { stroke: var(--accent); stroke-width: 3.4; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 75%, transparent)); }
 
 #chart .labels { pointer-events: none; }
@@ -425,7 +428,7 @@ body.side-open .traits { right: calc(var(--side-w) + 24px); }
   will-change: transform;
   touch-action: pan-y;
 }
-.panel:not([data-state="closed"]) { visibility: visible; transition: transform .45s var(--ease-out), visibility 0s; }
+.panel:not([data-state="closed"]) { visibility: visible; transition: transform .45s var(--ease-out); } /* visible at once, so focus can move in */
 .panel[data-state="peek"] { transform: translateY(calc(100% - var(--peek) - env(safe-area-inset-bottom))); }
 .panel[data-state="half"] { transform: translateY(50%); }
 .panel[data-state="full"] { transform: translateY(0); }
@@ -595,5 +598,8 @@ body.side-open .traits { right: calc(var(--side-w) + 24px); }
 .p-foot { margin-top: 26px; font-size: 12px; color: var(--text-2); line-height: 1.5; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-delay: 0s !important; }
+  *, *::before, *::after {
+    transition: none !important;
+    animation-duration: 0.01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important;
+  }
 }
