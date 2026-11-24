@@ -105,7 +105,7 @@ button { font: inherit; color: inherit; }
   padding: calc(env(safe-area-inset-top) + 8px) max(16px, env(safe-area-inset-right)) 4px max(16px, env(safe-area-inset-left));
   display: grid; gap: 6px 4px;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "search actions" "fam fam" "sub sub";
+  grid-template-areas: "search actions" "fam fam";
   background: var(--glass);
   -webkit-backdrop-filter: blur(18px) saturate(1.5); backdrop-filter: blur(18px) saturate(1.5);
   border-bottom: 1px solid var(--line);
@@ -116,9 +116,11 @@ button { font: inherit; color: inherit; }
 .brand h1 { font-size: 16px; font-weight: 800; letter-spacing: -0.02em; margin: 0; white-space: nowrap; }
 .brand-mark { font-size: 20px; line-height: 1; }
 .search { grid-area: search; position: relative; min-width: 0; }
-.actions { grid-area: actions; display: flex; align-items: center; }
+.actions { grid-area: actions; display: flex; align-items: center; justify-self: end; }
 .families { grid-area: fam; }
-.subbar { grid-area: sub; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.subbar { grid-area: sub; display: contents; }
+body.sheet-up .families { display: none; }
+.families { animation: fade-in .3s ease-out; }
 
 .icon-btn {
   width: 44px; height: 44px; display: grid; place-items: center; flex: none;
@@ -192,7 +194,7 @@ button { font: inherit; color: inherit; }
 
 /* Breadcrumbs: single line, scrolls, current crumb kept in view */
 .crumbs {
-  flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none;
+  display: none; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none;
   -webkit-mask-image: linear-gradient(to right, transparent, #000 10px, #000 calc(100% - 10px), transparent);
           mask-image: linear-gradient(to right, transparent, #000 10px, #000 calc(100% - 10px), transparent);
   margin-left: -10px; padding-left: 4px;
@@ -211,11 +213,26 @@ button { font: inherit; color: inherit; }
 .crumbs button[aria-current="page"] { color: var(--text); font-weight: 700; }
 .crumbs .count { color: var(--text-2); font-weight: 500; padding-left: 4px; }
 
-.legend {
-  flex: none; display: flex; align-items: center; gap: 6px;
-  font-size: 11px; font-weight: 600; color: var(--text-2); letter-spacing: .02em;
+/* Key: a popover card on phones (toggled by the (i) button), an inline row on desktop */
+.key {
+  position: absolute; top: calc(100% + 8px); right: max(12px, env(safe-area-inset-right)); z-index: 31;
+  width: min(330px, calc(100vw - 24px)); padding: 14px 16px 12px;
+  border-radius: 18px; border: 1px solid var(--line); background: var(--surface-solid); box-shadow: var(--shadow);
+  font-size: 13px; color: var(--text);
+  display: none;
 }
-.legend i { width: 48px; height: 8px; border-radius: 99px; background: var(--srm-gradient); box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
+.key.open { display: block; animation: pop .18s var(--ease-out); }
+.key-intro { margin: 0 0 10px; font-size: 13px; line-height: 1.45; color: var(--text-2); text-wrap: pretty; }
+.key ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.key li { display: flex; align-items: center; gap: 10px; font-weight: 600; line-height: 1.3; }
+.key svg { flex: none; width: 26px; height: 10px; overflow: visible; }
+.key .ks { display: none; }
+.k-line { fill: none; stroke: var(--text-2); stroke-width: 2.2; stroke-linecap: round; }
+.k-dash { stroke-dasharray: 3.5 3; stroke-linecap: butt; }
+.k-head { fill: var(--text-2); }
+.k-size { fill: var(--accent-soft); stroke: var(--text-2); stroke-width: 1; }
+.k-ribbon { fill: var(--text-2); opacity: .4; }
+.key-btn[aria-expanded="true"] { background: var(--chip-2); color: var(--text); }
 
 /* ---------- Stage ---------- */
 .stage { position: fixed; inset: 0; touch-action: none; }
@@ -228,19 +245,22 @@ button { font: inherit; color: inherit; }
 #chart .sankey .ribbon { fill-opacity: .2; transition: fill-opacity .35s; }
 #chart .sankey .source { fill-opacity: .9; }
 #chart .links path { fill: none; stroke-linecap: round; stroke-opacity: .55; transition: stroke-opacity .3s; }
-#chart .links path.inspired { stroke-dasharray: 6 5; stroke-opacity: .3; }
+#chart .links path.inspired { stroke-dasharray: 6 5; stroke-opacity: .32; }
 #chart .links path.revival { stroke-dasharray: 1.5 5; }
 #chart .links path.dim { stroke-opacity: .07; }
-#chart .links path.lit { stroke-opacity: .95 !important; }
 #chart .links path.hot { stroke-opacity: 1; }
-#chart .links path.draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw-link 1s var(--ease-out) both; }
-@keyframes draw-link { to { stroke-dashoffset: 0; } }
-#chart .world.fade-in .bands, #chart .world.fade-in .sankey { animation: fade-in .9s ease-out both; }
-@keyframes fade-in { from { opacity: 0; } }
+/* light pulses travelling parent → child along a traced lineage */
+#chart .flow path {
+  fill: none; stroke: #fff; stroke-opacity: .85; stroke-linecap: round;
+  stroke-dasharray: 0.1 13; animation: flow 1.1s linear infinite;
+}
+@keyframes flow { to { stroke-dashoffset: -13.1; } }
+#chart .arrows { pointer-events: none; }
 
-#chart .blobs g { opacity: .3; mix-blend-mode: multiply; pointer-events: none; }
-:root[data-theme="dark"] #chart .blobs g { opacity: .34; mix-blend-mode: screen; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #chart .blobs g { opacity: .34; mix-blend-mode: screen; } }
+#chart .blobs { pointer-events: none; transition: opacity .35s; }
+#chart .blobs.muted { opacity: .45; }
+#chart .blobs g { mix-blend-mode: multiply; animation: fade-in .4s ease-out; }
+@keyframes fade-in { from { opacity: 0; } }
 
 #chart circle.node {
   cursor: pointer; stroke-width: 1.6; outline: none;
@@ -263,17 +283,32 @@ button { font: inherit; color: inherit; }
 #chart .labels text.lit { fill: var(--text); }
 #chart .labels text.sel { fill: var(--text); font-weight: 800; }
 
+/* dark: lines a touch stronger, trait regions add light instead of multiplying */
+:root[data-theme="dark"] #chart .links path:not(.dim):not(.inspired) { stroke-opacity: .72; }
+:root[data-theme="dark"] #chart .links path.inspired:not(.dim) { stroke-opacity: .45; }
+:root[data-theme="dark"] #chart .blobs g { mix-blend-mode: screen; opacity: .8; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) #chart .links path:not(.dim):not(.inspired) { stroke-opacity: .72; }
+  :root:not([data-theme="light"]) #chart .links path.inspired:not(.dim) { stroke-opacity: .45; }
+  :root:not([data-theme="light"]) #chart .blobs g { mix-blend-mode: screen; opacity: .8; }
+}
+#chart .links path.lit { stroke-opacity: .95 !important; }
+
 #chart .overlay { pointer-events: none; }
-#chart .overlay .axis-bg { fill: var(--bg); fill-opacity: .82; }
+#chart .overlay .axis-bg, #chart .overlay .lane-bg { fill: var(--bg); fill-opacity: .86; }
+#chart .overlay .lead { stroke-width: 1.2; stroke-opacity: .7; }
 #chart .overlay .tick { font-size: 11px; font-weight: 700; fill: var(--text-2); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
 #chart .overlay .lane {
   font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em;
   paint-order: stroke; stroke: var(--halo); stroke-width: 3px; stroke-linejoin: round;
 }
+#chart .overlay .lane.dim { opacity: .45; }
+.river-vertical #chart .overlay .lane { font-size: 10.5px; letter-spacing: .07em; }
 #chart .overlay .src {
   font-size: 12px; font-weight: 800; letter-spacing: .01em;
   paint-order: stroke; stroke: var(--halo); stroke-width: 3px; stroke-linejoin: round;
 }
+#chart .overlay .src .n { fill: var(--text-2); font-weight: 600; font-size: 11px; font-variant-numeric: tabular-nums; }
 
 /* trait toggles: a thumb-reachable bar at the bottom */
 .traits {
@@ -302,12 +337,29 @@ button { font: inherit; color: inherit; }
   background: color-mix(in srgb, var(--t) 22%, var(--surface-solid));
 }
 .trait-chip[aria-pressed="true"] .dot { opacity: 1; box-shadow: 0 0 0 3px color-mix(in srgb, var(--t) 30%, transparent); }
-.traits.multi::after {
-  content: "Overlaps = both traits"; flex: none; font-size: 11.5px; font-weight: 600; color: var(--text-2); padding-left: 4px;
+/* what the shading means, right above the toggles */
+.trait-hint {
+  position: fixed; z-index: 15; left: max(16px, env(safe-area-inset-left)); max-width: calc(100vw - 32px);
+  bottom: calc(env(safe-area-inset-bottom) + 64px);
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px 6px 9px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--line); box-shadow: var(--shadow-sm);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  font-size: 12.5px; font-weight: 550; color: var(--text-2); white-space: nowrap;
+  animation: pop .2s var(--ease-out);
 }
-body:has(.panel:not([data-state="closed"])) .traits { opacity: 0; pointer-events: none; }
+.trait-hint[hidden] { display: none; }
+.trait-hint span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.trait-hint b { color: var(--text); font-weight: 750; }
+.trait-hint i { display: block; width: 14px; height: 14px; border-radius: 50%; flex: none; background: color-mix(in srgb, var(--t) 45%, transparent); box-shadow: inset 0 0 0 1.5px var(--t); }
+.trait-hint .venn { display: flex; flex: none; }
+.trait-hint .venn i + i { margin-left: -6px; }
+body:has(.trait-hint:not([hidden])) .hint { visibility: hidden; }
+/* a bottom sheet covers the toggles; beside a side panel they stay usable */
+body.sheet-open :is(.traits, .trait-hint) { opacity: 0; pointer-events: none; }
+body.side-open .traits { right: calc(var(--side-w) + 24px); }
 @media (min-width: 900px) {
-  body:has(.panel:not([data-state="closed"])) .traits { opacity: 1; pointer-events: auto; }
+  .trait-hint { bottom: 70px; }
   .traits { left: 16px; right: auto; max-width: calc(100vw - var(--side-w) - 64px); padding: 4px 0; -webkit-mask-image: none; mask-image: none; flex-wrap: wrap; bottom: 16px; }
 }
 
@@ -408,7 +460,7 @@ body:has(.panel:not([data-state="closed"])) .traits { opacity: 0; pointer-events
   :root { --side-w: min(360px, 46vw); }
   .topbar {
     grid-template-columns: minmax(180px, 280px) minmax(0, 1fr) auto;
-    grid-template-areas: "search fam actions" "sub sub sub";
+    grid-template-areas: "search fam actions";
     padding-top: calc(env(safe-area-inset-top) + 6px);
   }
   .families { margin: 0; padding: 3px 4px; }
@@ -427,11 +479,27 @@ body:has(.panel:not([data-state="closed"])) .traits { opacity: 0; pointer-events
     transition: right .45s var(--ease-out);
   }
   .brand { display: flex; }
+  .topbar { container-type: inline-size; }
+  .subbar { display: flex; align-items: center; gap: 16px; min-width: 0; }
+  .crumbs { display: block; }
+  .key-btn { display: none; }
+  .key {
+    position: static; display: block; flex: none; width: auto; padding: 0; border: 0; border-radius: 0;
+    background: none; box-shadow: none; font-size: 11.5px; color: var(--text-2);
+  }
+  .key-intro, .key .kl { display: none; }
+  .key .ks { display: inline; }
+  .key ul { display: flex; gap: 14px; }
+  .key li { gap: 6px; font-weight: 600; white-space: nowrap; }
+  .key svg { width: 22px; }
   body.side-open .topbar { right: calc(var(--side-w) + 32px); }
   .families { margin: 0 -10px 0 -16px; padding: 3px 16px; }
   .hint { left: 32px; transform: none; }
   @keyframes hint-in { from { opacity: 0; transform: translateY(10px); } }
   .hint.gone { transform: translateY(10px); }
+}
+@container (max-width: 1060px) {
+  .key .k-opt { display: none; }
 }
 
 /* ---------- Panel content ---------- */
@@ -441,7 +509,15 @@ body:has(.panel:not([data-state="closed"])) .traits { opacity: 0; pointer-events
   display: flex; align-items: center; gap: 8px; min-height: 20px;
 }
 .p-eyebrow .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.p-eyebrow span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-eyebrow { gap: 2px; flex-wrap: wrap; }
+.p-eyebrow .dot { margin-right: 6px; }
+.p-eyebrow .sep { opacity: .5; padding: 0 2px; }
+.p-eyebrow .crumb {
+  position: relative; border: 0; background: none; padding: 2px 4px; margin: 0 -2px; border-radius: 6px;
+  font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer;
+}
+.p-eyebrow .crumb::after { content: ""; position: absolute; inset: -8px -2px; }
+.p-eyebrow .crumb:hover { color: var(--text); background: var(--chip); }
 .p-title { display: flex; align-items: center; gap: 14px; margin: 8px 0 10px; }
 .p-title h2 { font-size: 25px; line-height: 1.12; letter-spacing: -0.025em; font-weight: 800; margin: 0; text-wrap: balance; outline: none; }
 .glass {

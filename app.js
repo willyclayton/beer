@@ -1,4 +1,4 @@
-/* Beer Style Atlas — zoomable circle-packing explorer */
+/* Beer Style Atlas — the Beer River: styles on a timeline, flowing in family streams */
 (() => {
   "use strict";
 
@@ -41,6 +41,7 @@
   const T_LEN = 2600, LANE_GAP = 60, SANKEY_W = 300, COLLIDE = 19;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const DUR = reduceMotion ? 0 : 750;
+  const INTRO_MS = 1700; // entrance: the timeline sweeps open over this long
   const canHover = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
   const sideMQ = window.matchMedia("(min-width: 900px), (min-width: 600px) and (max-height: 500px) and (orientation: landscape)");
   const sidePanel = () => sideMQ.matches;
@@ -62,14 +63,15 @@
   const hint = $("hint");
 
   // ---------- state ----------
-  let root, nodes, leaves, styles, byId = new Map();
+  let root, nodes, styles, byId = new Map();
   let W = 0, H = 0, homeK = 1, vertical = false, drawn = false, userMoved = false;
-  let transform = d3.zoomIdentity, lastFit = null;
-  let selected = null, hovered = null, litSet = null;
+  let transform = d3.zoomIdentity, lastFit = null, view = null;
+  let selected = null, hovered = null, litSet = null, litLinks = [], introFront = Infinity;
   const activeTraits = new Set();
   let panelState = "closed";
   let tScale, lanes = [], ribbons = [], L_LEN = 0, sankeyUnit = 1, linkData = [];
-  let gradDefs, gWorld, gBands, gGrid, gSankey, gLinks, gBlobs, gNodes, gLabels, gOverlay, nodeSel, linkSel, labelSel, zoom;
+  let gradDefs, gWorld, gBands, gGrid, gSankey, gLinks, gFlow, gBlobs, gArrows, gNodes, gLabels, gOverlay;
+  let nodeSel, linkSel, labelSel, blobSel = null, zoom;
 
   // ---------- helpers ----------
   const isStyle = (d) => d.data.type === "style" || Array.isArray(d.data.abv);
@@ -95,6 +97,18 @@
     return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
   }
   const contrast = (l1, l2) => (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+  // text colour for a family/source hue that keeps >= 4.5:1 against the page in the current theme
+  const inkCache = new Map();
+  function ink(hex) {
+    const dark = darkTheme(), key = hex + dark;
+    if (!inkCache.has(key)) {
+      const bg = luminance(dark ? "#120f0c" : "#f7f2ea");
+      const c = d3.lab(hex);
+      for (let i = 0; i < 30 && contrast(luminance(c.formatHex()), bg) < 4.6; i++) c.l += dark ? 2 : -2;
+      inkCache.set(key, c.formatHex());
+    }
+    return inkCache.get(key);
+  }
   function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch { /* ignore */ } }
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
@@ -137,7 +151,6 @@
       byId.set(d.uid, d);
       d.srm = isStyle(d) ? mid(d.data.srm) : null;
     });
-    leaves = nodes.filter(isLeaf);
     styles = nodes.filter(isStyle);
     root.children.forEach((f, i) => { f.color = FAMILY_COLORS[f.data.id] || FALLBACK_COLORS[i % FALLBACK_COLORS.length]; });
     root.color = "#999";
@@ -361,11 +374,20 @@
   // ---------- chart ----------
   function buildChart() {
     const defs = svg.append("defs");
-    defs.append("filter").attr("id", "goo").attr("filterUnits", "userSpaceOnUse")
+    // trait regions: blur + alpha threshold melts nearby circles into one soft region (the "goo"),
+    // then a thin rim is cut out of it so overlapping regions read like a Venn diagram
+    defs.append("filter").attr("id", "goo").attr("filterUnits", "userSpaceOnUse").attr("color-interpolation-filters", "sRGB")
       .call((f) => {
-        f.append("feGaussianBlur").attr("in", "SourceGraphic").attr("stdDeviation", 9).attr("result", "b");
-        f.append("feColorMatrix").attr("in", "b").attr("values", "1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9");
+        f.append("feGaussianBlur").attr("in", "SourceGraphic").attr("stdDeviation", 8).attr("result", "blur");
+        f.append("feColorMatrix").attr("in", "blur").attr("values", "1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 24 -10").attr("result", "goo");
+        f.append("feMorphology").attr("in", "goo").attr("operator", "erode").attr("radius", 1.3).attr("result", "inner");
+        f.append("feComposite").attr("in", "goo").attr("in2", "inner").attr("operator", "out").attr("result", "rim");
+        f.append("feComponentTransfer").attr("in", "goo").attr("result", "fill").append("feFuncA").attr("type", "linear").attr("slope", 0.34);
+        const m = f.append("feMerge");
+        m.append("feMergeNode").attr("in", "fill");
+        m.append("feMergeNode").attr("in", "rim");
       });
+    defs.append("clipPath").attr("id", "sweep").append("rect");
     gradDefs = defs;
 
     gWorld = svg.append("g").attr("class", "world");
@@ -373,21 +395,29 @@
     gGrid = gWorld.append("g").attr("class", "grid");
     gSankey = gWorld.append("g").attr("class", "sankey");
     gLinks = gWorld.append("g").attr("class", "links");
+    gFlow = gWorld.append("g").attr("class", "flow").attr("aria-hidden", "true");
     gBlobs = svg.append("g").attr("class", "blobs").attr("aria-hidden", "true");
+    gArrows = svg.append("g").attr("class", "arrows").attr("aria-hidden", "true");
     gNodes = svg.append("g").attr("class", "nodes");
     gLabels = svg.append("g").attr("class", "labels").attr("aria-hidden", "true");
     gOverlay = svg.append("g").attr("class", "overlay").attr("aria-hidden", "true");
+    gOverlay.append("rect").attr("class", "axis-bg");
+    gOverlay.append("rect").attr("class", "lane-bg");
 
     linkData = [];
     styles.forEach((s) => s.parentLinks.forEach((p) => linkData.push({ parent: p.node, child: s, kind: p.kind || "descended" })));
 
-    nodeSel = gNodes.selectAll("circle").data(styles).join("circle")
+    // DOM (= tab) order follows the river: lane by lane, oldest first
+    const laneIdx = (s) => lanes.indexOf(famOf(s).lane);
+    const riverOrder = styles.slice().sort((a, b) => laneIdx(a) - laneIdx(b) || a.t - b.t);
+    nodeSel = gNodes.selectAll("circle").data(riverOrder).join("circle")
       .attr("class", (s) => "node" + (famOf(s).data.id === "historical" ? " historical" : ""))
       .attr("tabindex", -1)
       .attr("role", "button")
       .attr("aria-label", (s) => `${s.data.name}, ${s.data.yearLabel || s.year}, ${fmtRange(s.data.abv, "% ABV")}`)
       .on("click", (e, s) => { e.stopPropagation(); activate(s, e.detail === 0); })
       .on("keydown", (e, s) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(s, true); } })
+      .on("focus", (e, s) => panIntoView(s))
       .on("pointerenter", (e, s) => { if (canHover && e.pointerType === "mouse") setHover(s, e); })
       .on("pointermove", (e) => { if (canHover) moveTooltip(e); })
       .on("pointerleave", () => { if (canHover) setHover(null); });
@@ -397,6 +427,7 @@
     zoom = d3.zoom()
       .clickDistance(8)
       .tapDistance(12)
+      .constrain(constrain)
       .on("start", (e) => { if (e.sourceEvent) { hint.classList.add("gone"); userMoved = true; } })
       .on("zoom", (e) => { transform = e.transform; update(); });
     svg.call(zoom).on("dblclick.zoom", null);
@@ -404,6 +435,26 @@
       if (e.target.closest && e.target.closest("circle.node")) return;
       if (selected) closePanel(false);
     });
+  }
+
+  // pan limits that follow the visible area (e.g. above the bottom sheet): the river's edge may come
+  // as far as the middle of the view, never further, so there's always something to look at
+  function constrain(t) {
+    const v = view, b = worldBox();
+    if (!v) return t;
+    const cx = (v.x0 + v.x1) / 2, cy = (v.y0 + v.y1) / 2;
+    const fix = (lo, hi, c) => (lo > c ? c - lo : hi < c ? c - hi : 0);
+    const dx = fix(t.applyX(b.x0), t.applyX(b.x1), cx), dy = fix(t.applyY(b.y0), t.applyY(b.y1), cy);
+    return dx || dy ? t.translate(dx / t.k, dy / t.k) : t;
+  }
+
+  // keyboard focus on an off-screen style pans it into view
+  function panIntoView(s) {
+    const v = view, [wx, wy] = nodeXY(s);
+    const x = transform.applyX(wx), y = transform.applyY(wy), m = 40;
+    const dx = clamp(x, v.x0 + m, v.x1 - m) - x, dy = clamp(y, v.y0 + m, v.y1 - m) - y;
+    if (!dx && !dy) return;
+    svg.transition().duration(DUR / 2).ease(d3.easeCubicOut).call(zoom.translateBy, dx / transform.k, dy / transform.k);
   }
 
   // geometry that depends on orientation
@@ -451,17 +502,42 @@
       .attr("class", (d) => "link " + d.kind)
       .attr("d", (d) => linkPath(d.parent, d.child))
       .attr("stroke", (d, i) => `url(#lg${i})`)
-      .attr("stroke-width", (d) => (1.3 + Math.sqrt(d.child.nDesc + 1) * 0.9).toFixed(2))
+      .attr("stroke-width", linkWidth)
+      .attr("vector-effect", "non-scaling-stroke");
+    drawFlow();
+  }
+  const linkWidth = (d) => +(1.3 + Math.sqrt(d.child.nDesc + 1) * 0.9).toFixed(2);
+
+  // a traced lineage "flows": light pulses travel each lit line from parent to child
+  function drawFlow() {
+    const flowing = selected && isStyle(selected) && !reduceMotion ? litLinks : [];
+    gFlow.selectAll("path").data(flowing).join("path")
+      .attr("d", (d) => linkPath(d.parent, d.child))
+      .attr("stroke-width", (d) => Math.max(1.6, linkWidth(d) * 0.75))
       .attr("vector-effect", "non-scaling-stroke");
   }
 
+  // history unfolds: the river is revealed left → right (or top → bottom) and styles pop in as their era arrives
   function entrance() {
     if (reduceMotion) return;
-    nodeSel.style("animation-delay", (s) => `${Math.round(150 + (s.t / T_LEN) * 1100)}ms`).classed("enter", true);
-    linkSel.filter((d) => d.kind === "descended").attr("pathLength", 1).classed("draw", true)
-      .style("animation-delay", (d) => `${Math.round(350 + (d.child.t / T_LEN) * 1100)}ms`);
-    gWorld.classed("fade-in", true);
-    setTimeout(() => { nodeSel.classed("enter", false); linkSel.classed("draw", false).attr("pathLength", null); }, 2800);
+    const a = -SANKEY_W - 80, b = T_LEN + 120, big = 1e5;
+    const rect = svg.select("#sweep rect");
+    const tAt = (ms) => a + (b - a) * (ms / INTRO_MS);
+    nodeSel.style("animation-delay", (s) => `${Math.round(((s.t - a) / (b - a)) * INTRO_MS)}ms`).classed("enter", true);
+    gWorld.attr("clip-path", "url(#sweep)");
+    const timer = d3.timer((ms) => {
+      const done = ms >= INTRO_MS;
+      introFront = done ? Infinity : tAt(ms);
+      const len = Math.max(0, tAt(Math.min(ms, INTRO_MS)) - a);
+      if (vertical) rect.attr("x", -big / 2).attr("width", big).attr("y", a).attr("height", len);
+      else rect.attr("x", a).attr("width", len).attr("y", -big / 2).attr("height", big);
+      if (done) {
+        timer.stop();
+        gWorld.attr("clip-path", null);
+        setTimeout(() => nodeSel.classed("enter", false).style("animation-delay", null), 700);
+      }
+      update();
+    });
   }
 
   function paint() {
@@ -470,6 +546,7 @@
     update();
   }
 
+  // the part of the stage not covered by the top bar, the axis, the trait bar or the panel
   function viewRect(home = false) {
     const top = topbar.getBoundingClientRect().bottom;
     const open = !home && panelState !== "closed";
@@ -484,11 +561,13 @@
     if (H - bottom - 8 - y0 < 160) bottom = Math.max(0, H - y0 - 168);
     return { x0: vertical ? 46 : 10, y0, x1: W - 10, y1: H - bottom - 8 };
   }
+  // cached: read once per layout change, not on every zoom frame
+  const refreshView = () => (view = viewRect());
 
   // fit a box (screen-space after zoom) into the view; remembers the request so it can be re-applied
   function fitBox(box, { dur = DUR, maxZ = 7, minZ = 0.9, alignStart = false, focusXY = null } = {}) {
     lastFit = () => fitBox(box, { dur: 0, maxZ, minZ, alignStart, focusXY });
-    const v = viewRect();
+    const v = refreshView();
     const vw = v.x1 - v.x0, vh = v.y1 - v.y0;
     const bw = Math.max(1, box.x1 - box.x0), bh = Math.max(1, box.y1 - box.y0);
     let k = alignStart && vertical ? vw / bw : Math.min(vw / bw, vh / bh) * 0.94;
@@ -498,11 +577,11 @@
     if (!fits && focusXY) {
       // box too big at a legible zoom: keep the chosen style in view, as close to the box centre as allowed
       const hw = vw / 2 / k, hh = vh / 2 / k;
-      cx = clamp(cx, focusXY[0] - hw * 0.8, focusXY[0] + hw * 0.8);
-      cy = clamp(cy, focusXY[1] - hh * 0.8, focusXY[1] + hh * 0.8);
+      cx = clamp(cx, focusXY[0] - hw * 0.7, focusXY[0] + hw * 0.7);
+      cy = clamp(cy, focusXY[1] - hh * 0.7, focusXY[1] + hh * 0.7);
     }
     let tx = (v.x0 + v.x1) / 2 - k * cx, ty = (v.y0 + v.y1) / 2 - k * cy;
-    if (alignStart && vertical) ty = v.y0 - k * box.y0;
+    if (alignStart && vertical) ty = v.y0 + 22 - k * box.y0;
     const t = d3.zoomIdentity.translate(tx, ty).scale(k);
     if (dur === 0) svg.interrupt().call(zoom.transform, t);
     else svg.transition().duration(dur).ease(d3.easeCubicInOut).call(zoom.transform, t);
@@ -523,49 +602,58 @@
     W = r.width; H = r.height;
     svg.attr("viewBox", `0 0 ${W} ${H}`);
     svg.select("#goo").attr("x", 0).attr("y", 0).attr("width", W).attr("height", H);
-    document.body.classList.toggle("side-open", sidePanel() && panelState !== "closed");
+    syncPanelChrome();
     const wasVertical = vertical;
     const top = topbar.getBoundingClientRect().bottom;
     vertical = W / Math.max(1, H - top) < 0.95;
     document.body.classList.toggle("river-vertical", vertical);
+    $("keyIntro").textContent = vertical
+      ? "Time flows down the page. Fermentation types at the top feed eight family streams; each dot is a style."
+      : "Time flows left to right. Fermentation types feed eight family streams; each dot is a style.";
     if (vertical !== wasVertical || !drawn) { drawWorld(); drawn = true; }
     const v = viewRect(true), b = worldBox();
     homeK = vertical ? (v.x1 - v.x0) / (b.x1 - b.x0) : Math.min((v.x1 - v.x0) / (b.x1 - b.x0), (v.y1 - v.y0) / (b.y1 - b.y0));
-    const m = 300;
-    zoom.scaleExtent([homeK * 0.5, homeK * 14])
-      .extent([[0, 0], [W, H]])
-      .translateExtent([[b.x0 - m, b.y0 - m], [b.x1 + m, b.y1 + m]]);
+    zoom.scaleExtent([homeK * 0.5, homeK * 14]).extent([[0, 0], [W, H]]);
+    refreshView();
     if (lastFit) refit(); else fitHome(0);
   }
 
   const zoomFactor = () => clamp(Math.sqrt(transform.k / homeK), 0.8, 2.6);
   const nodeR = (s) => (4.2 + Math.sqrt(s.nDesc) * 1.25) * zoomFactor();
+  const blobR = (s) => nodeR(s) + 14 * zoomFactor() ** 1.25; // grows faster than dots so regions stay merged when zoomed in
 
   function update() {
     if (!nodeSel) return;
     gWorld.attr("transform", transform);
     const z = zoomFactor();
-    const v = viewRect();
+    const v = view || refreshView();
     const pos = new Map();
     styles.forEach((s) => {
       const [x, y] = nodeXY(s);
       pos.set(s, [transform.applyX(x), transform.applyY(y)]);
     });
     nodeSel.attr("cx", (s) => pos.get(s)[0]).attr("cy", (s) => pos.get(s)[1]).attr("r", nodeR);
-
-    // trait blobs (Venn overlay)
-    gBlobs.selectAll("g.trait").data(TRAITS.filter((t) => activeTraits.has(t.id)), (t) => t.id).join("g")
-      .attr("class", "trait")
-      .attr("filter", "url(#goo)")
-      .attr("fill", (t) => t.color)
-      .each(function (t) {
-        d3.select(this).selectAll("circle").data(styles.filter((s) => s.traits.includes(t.id))).join("circle")
-          .attr("cx", (s) => pos.get(s)[0]).attr("cy", (s) => pos.get(s)[1]).attr("r", (s) => nodeR(s) + 13 * z);
-      });
+    if (blobSel) blobSel.attr("cx", (s) => pos.get(s)[0]).attr("cy", (s) => pos.get(s)[1]).attr("r", blobR);
+    drawArrows(pos);
 
     const laneLabels = computeLaneLabels(v);
-    placeLabels(pos, v, z, laneLabels.filter((d) => d.show).map((d) => d.box));
-    drawOverlay(v, laneLabels);
+    const srcLabels = computeSourceLabels();
+    const obstacles = laneLabels.filter((d) => d.show).map((d) => d.box).concat(srcLabels.map((d) => d.box));
+    if (laneLabels.band) obstacles.push({ x0: -1e4, x1: 1e4, y0: laneLabels.band.y0, y1: laneLabels.band.y1 });
+    placeLabels(pos, v, z, obstacles);
+    drawOverlay(v, laneLabels, srcLabels);
+  }
+
+  // arrowheads where a traced (or hovered) line arrives at its child: lines always enter along the time axis
+  function drawArrows(pos) {
+    const data = selected && isStyle(selected) ? litLinks
+      : hovered ? linkData.filter((l) => l.parent === hovered || l.child === hovered) : [];
+    gArrows.selectAll("path").data(data).join("path")
+      .attr("fill", (d) => ink(famColor(d.child)))
+      .attr("d", (d) => {
+        const [x, y] = pos.get(d.child), r = nodeR(d.child) + 1.5, a = 6, h = 3.6;
+        return vertical ? `M${x},${y - r}l${-h},${-a}h${2 * h}z` : `M${x - r},${y}l${-a},${-h}v${2 * h}z`;
+      });
   }
 
   // greedy, priority-ordered label placement: only labels that fit are shown
@@ -580,24 +668,24 @@
     styles.forEach((s) => {
       const [x, y] = pos.get(s);
       if (x < v.x0 - 20 || x > v.x1 + 20 || y < v.y0 - 20 || y > v.y1 + 20) return;
-      if (litSet && !litSet.has(s)) return;
+      if (lit && !lit.has(s)) return;
       const r = nodeR(s);
       placed.push({ x0: x - r, x1: x + r, y0: y - r, y1: y + r });
     });
     const shown = new Map();
     for (const s of order) {
       const [x, y] = pos.get(s);
-      if (x < v.x0 - 40 || x > v.x1 + 40 || y < v.y0 - 20 || y > v.y1 + 20) continue;
-      if (lit && !lit.has(s) && placed.length > 3) continue; // when tracing a lineage, keep the noise down
+      if (x < v.x0 - 40 || x > v.x1 + 40 || y < v.y0 || y > v.y1 + 20) continue;
+      if (s.t > introFront) continue; // entrance: labels arrive with their era
+      if (lit && !lit.has(s)) continue; // when tracing a lineage, keep the noise down
       const w = s.labelW * fs, r = nodeR(s), h = fs * 1.2;
-      const cands = vertical
-        ? [{ x: x + r + 4, y: y + fs * 0.35, a: "start", box: { x0: x + r + 2, x1: x + r + 6 + w, y0: y - h / 2, y1: y + h / 2 } },
-           { x: x - r - 4, y: y + fs * 0.35, a: "end", box: { x0: x - r - 6 - w, x1: x - r - 2, y0: y - h / 2, y1: y + h / 2 } }]
+      const right = { x: x + r + 4, y: y + fs * 0.35, a: "start", box: { x0: x + r + 2, x1: x + r + 6 + w, y0: y - h / 2, y1: y + h / 2 } };
+      const left = { x: x - r - 4, y: y + fs * 0.35, a: "end", box: { x0: x - r - 6 - w, x1: x - r - 2, y0: y - h / 2, y1: y + h / 2 } };
+      const cands = vertical ? [right, left]
         : [{ x, y: y - r - 4, a: "middle", box: { x0: x - w / 2 - 2, x1: x + w / 2 + 2, y0: y - r - 4 - fs, y1: y - r - 1 } },
            { x, y: y + r + fs + 1, a: "middle", box: { x0: x - w / 2 - 2, x1: x + w / 2 + 2, y0: y + r, y1: y + r + fs + 4 } },
-           { x: x + r + 4, y: y + fs * 0.35, a: "start", box: { x0: x + r + 2, x1: x + r + 6 + w, y0: y - h / 2, y1: y + h / 2 } },
-           { x: x - r - 4, y: y + fs * 0.35, a: "end", box: { x0: x - r - 6 - w, x1: x - r - 2, y0: y - h / 2, y1: y + h / 2 } }];
-      const c = cands.find((c) => c.box.x0 >= v.x0 - 4 && c.box.x1 <= v.x1 + 4 && !hit(c.box));
+           right, left];
+      const c = cands.find((c) => c.box.x0 >= v.x0 - 4 && c.box.x1 <= v.x1 + 4 && c.box.y0 >= v.y0 - 2 && !hit(c.box));
       if (!c) continue;
       placed.push(c.box);
       shown.set(s, c);
@@ -610,36 +698,92 @@
       this.setAttribute("y", c.y.toFixed(1));
       this.setAttribute("text-anchor", c.a);
       this.setAttribute("font-size", fs.toFixed(1));
-      this.classList.toggle("lit", !!(litSet && litSet.has(s)));
+      this.classList.toggle("lit", !!(lit && lit.has(s)));
       this.classList.toggle("sel", s === selected);
     });
   }
 
-  // lane names: just before the lane begins (end of the sankey ribbons), pinned to the view edge when scrolled
+  // lane names. Horizontal: above each stream, pinned to the left edge and to the top like section
+  // headers. Vertical: across the top, in up to two staggered rows, on a frosted band once scrolled.
   function computeLaneLabels(v) {
+    const fs = vertical ? 10.5 : 11, tracking = fs * (vertical ? 0.07 : 0.09); // matches the CSS
+    measureCtx.font = `800 ${fs}px ${FONT_STACK}`;
     const out = lanes.map((ln) => {
-      if (vertical) {
-        const x = transform.applyX(ln.mid);
-        const y = Math.max(v.y0 + 14, transform.applyY(0) - 10);
-        return { ln, x, y, name: SHORT_NAMES[ln.f.data.id] || ln.f.data.name };
+      const name = vertical ? SHORT_NAMES[ln.f.data.id] || ln.f.data.name : ln.f.data.name;
+      return { ln, name, w: measureCtx.measureText(name.toUpperCase()).width + name.length * tracking + 4, show: false };
+    });
+    if (vertical) {
+      const ends = [-1e9, -1e9, -1e9];
+      out.forEach((d) => {
+        const real = transform.applyX(d.ln.mid);
+        if (real < v.x0 - 8 || real > v.x1 + 8) return;
+        d.x = clamp(real, v.x0 + d.w / 2, v.x1 - d.w / 2);
+        d.row = ends.findIndex((e) => d.x - d.w / 2 > e + 6);
+        d.show = d.row >= 0;
+        if (d.show) ends[d.row] = d.x + d.w / 2;
+      });
+      const rows = 1 + d3.max(out, (d) => (d.show ? d.row : 0));
+      const natural = transform.applyY(0) - 10, pinnedY = v.y0 + 1 + rows * 13;
+      const base = Math.max(pinnedY, natural);
+      out.forEach((d) => {
+        if (!d.show) return;
+        d.y = base - d.row * 13;
+        d.box = { x0: d.x - d.w / 2, x1: d.x + d.w / 2, y0: d.y - 11, y1: d.y + 3 };
+      });
+      if (pinnedY >= natural) out.band = { y0: v.y0 - 8, y1: base + 6 };
+    } else {
+      out.forEach((d) => {
+        const top = transform.applyY(d.ln.l0), bot = transform.applyY(d.ln.l1);
+        d.x = Math.max(v.x0 + 6, transform.applyX(0) + 6);
+        d.y = Math.min(Math.max(top - 6, v.y0 + 12), bot - 4);
+        // a header lives in the gap above its stream; zoomed far out that gap is too thin to hold one
+        d.show = d.y > v.y0 + 2 && d.y < v.y1 && LANE_GAP * transform.k >= 11;
+      });
+      // a header that would overlap the next one gives way (sticky-header push), or hides
+      for (let i = out.length - 2; i >= 0; i--) {
+        const d = out[i], next = out.slice(i + 1).find((n) => n.show);
+        if (d.show && next && d.y > next.y - 14) { d.y = next.y - 14; d.show = d.y > v.y0 + 2 && d.y > transform.applyY(d.ln.l0) - 30; }
       }
-      const y = transform.applyY(ln.l0) - 6;
-      const x = Math.max(v.x0 + 6, transform.applyX(0) + 6);
-      return { ln, x, y, name: ln.f.data.name };
-    });
-    measureCtx.font = `800 11px ${FONT_STACK}`;
-    let prevEnd = -1e9;
-    out.forEach((d) => {
-      const w = measureCtx.measureText(d.name.toUpperCase()).width * 1.12 + 8;
-      if (vertical) { d.show = d.x - w / 2 > prevEnd && d.x > v.x0 && d.x < v.x1; if (d.show) prevEnd = d.x + w / 2; }
-      else d.show = d.y > v.y0 + 4 && d.y < v.y1;
-      d.box = vertical ? { x0: d.x - w / 2, x1: d.x + w / 2, y0: d.y - 11, y1: d.y + 3 } : { x0: d.x - 2, x1: d.x + w, y0: d.y - 11, y1: d.y + 3 };
-    });
+      out.forEach((d) => { d.box = { x0: d.x - 2, x1: d.x + d.w, y0: d.y - 11, y1: d.y + 3 }; });
+    }
     return out;
   }
 
+  // fermentation sources: name + count beside each bar, nudged apart (with a leader) when bars are thin
+  function computeSourceLabels() {
+    measureCtx.font = `800 12px ${FONT_STACK}`;
+    const list = FERMENTS.filter((f) => f.count).map((fm) => {
+      const name = vertical ? SHORT_FERM[fm.id] : fm.name;
+      const w = measureCtx.measureText(`${name} ${fm.count}`).width + 6;
+      const [bx, by] = P(-SANKEY_W, (fm.l0 + fm.l1) / 2);
+      return { fm, name, w, bx: transform.applyX(bx), by: transform.applyY(by) };
+    });
+    const along = (d) => (vertical ? d.bx : d.by), size = (d) => (vertical ? d.w : 15);
+    list.forEach((d) => { d.c = along(d); });
+    for (let it = 0; it < 40; it++) {
+      let moved = false;
+      for (let i = 1; i < list.length; i++) {
+        const a = list[i - 1], b = list[i], need = (size(a) + size(b)) / 2 + 6 - (b.c - a.c);
+        if (need > 0.5) { a.c -= need / 2; b.c += need / 2; moved = true; }
+      }
+      if (!moved) break;
+    }
+    list.forEach((d) => {
+      if (vertical) {
+        d.x = d.c; d.y = d.by - 13;
+        d.lead = Math.abs(d.c - d.bx) > 3 ? [d.c, d.y + 3, d.bx, d.by - 2] : null;
+        d.box = { x0: d.x - d.w / 2, x1: d.x + d.w / 2, y0: d.y - 12, y1: d.y + 3 };
+      } else {
+        d.x = d.bx - 12; d.y = d.c + 4;
+        d.lead = Math.abs(d.c - d.by) > 3 ? [d.x + 3, d.c, d.bx - 2, d.by] : null;
+        d.box = { x0: d.x - d.w, x1: d.x, y0: d.y - 12, y1: d.y + 3 };
+      }
+    });
+    return list;
+  }
+
   // sticky time axis, lane names and sankey source names (screen space)
-  function drawOverlay(v, laneLabels) {
+  function drawOverlay(v, laneLabels, srcLabels) {
     const ticks = TICKS.filter((y) => y >= tScale.domain()[0]);
     const tickData = ticks.map((y) => {
       const [wx, wy] = P(tScale(y), 0);
@@ -651,8 +795,8 @@
     tickData.forEach((d) => { d.show = d.s - last >= minGap; if (d.show) last = d.s; });
 
     const axisPos = vertical ? v.x0 - 8 : v.y0 - 14;
-    gOverlay.selectAll("rect.axis-bg").data([0]).join("rect").attr("class", "axis-bg")
-      .attr("x", vertical ? 0 : 0).attr("y", vertical ? 0 : axisPos - 16)
+    gOverlay.select("rect.axis-bg")
+      .attr("x", 0).attr("y", vertical ? 0 : axisPos - 16)
       .attr("width", vertical ? v.x0 - 2 : W).attr("height", vertical ? H : 26);
     gOverlay.selectAll("text.tick").data(tickData.filter((d) => d.show), (d) => d.y).join("text")
       .attr("class", "tick")
@@ -661,44 +805,67 @@
       .attr("text-anchor", vertical ? "end" : "middle")
       .text((d) => d.label);
 
-    // lane names: pinned to the start of the visible area
-    const laneLbls = laneLabels;
-    gOverlay.selectAll("text.lane").data(laneLbls.filter((d) => d.show), (d) => d.ln.f.uid).join("text")
-      .attr("class", "lane")
+    const band = laneLabels.band;
+    gOverlay.select("rect.lane-bg").style("display", band ? null : "none")
+      .attr("x", v.x0 - 4).attr("y", band ? band.y0 : 0).attr("width", W).attr("height", band ? band.y1 - band.y0 : 0);
+    gOverlay.selectAll("text.lane").data(laneLabels.filter((d) => d.show), (d) => d.ln.f.uid).join("text")
+      .attr("class", (d) => "lane" + (litSet && !d.ln.members.some((s) => litSet.has(s)) ? " dim" : ""))
       .attr("x", (d) => d.x).attr("y", (d) => d.y)
       .attr("text-anchor", vertical ? "middle" : "start")
-      .attr("fill", (d) => d.ln.f.color)
+      .attr("fill", (d) => ink(d.ln.f.color))
       .text((d) => d.name);
 
-    // fermentation sources
-    const src = FERMENTS.filter((f) => f.count).map((fm) => {
-      const [x, y] = P(-SANKEY_W - 8, (fm.l0 + fm.l1) / 2);
-      return { fm, x: transform.applyX(x), y: transform.applyY(y) };
-    });
-    measureCtx.font = `800 12px ${FONT_STACK}`;
-    let srcEnd = -1e9;
-    src.forEach((d) => {
-      const w = measureCtx.measureText(vertical ? SHORT_FERM[d.fm.id] : d.fm.name).width + 6;
-      const a = vertical ? d.x - w / 2 : d.y - 8, b = vertical ? d.x + w / 2 : d.y + 8;
-      d.show = a > srcEnd; if (d.show) srcEnd = b;
-    });
-    gOverlay.selectAll("text.src").data(src.filter((d) => d.show), (d) => d.fm.id).join("text")
-      .attr("class", "src")
-      .attr("x", (d) => (vertical ? d.x : d.x))
-      .attr("y", (d) => (vertical ? d.y - 6 : d.y + 4))
+    gOverlay.selectAll("line.lead").data(srcLabels.filter((d) => d.lead), (d) => d.fm.id).join("line")
+      .attr("class", "lead")
+      .attr("x1", (d) => d.lead[0]).attr("y1", (d) => d.lead[1]).attr("x2", (d) => d.lead[2]).attr("y2", (d) => d.lead[3])
+      .attr("stroke", (d) => d.fm.color);
+    gOverlay.selectAll("text.src").data(srcLabels, (d) => d.fm.id).join((e) => e.append("text").attr("class", "src")
+      .call((t) => { t.append("tspan").attr("class", "nm"); t.append("tspan").attr("class", "n").attr("dx", 4); }))
+      .attr("x", (d) => d.x).attr("y", (d) => d.y)
       .attr("text-anchor", vertical ? "middle" : "end")
-      .attr("fill", (d) => d.fm.color)
-      .text((d) => (vertical ? SHORT_FERM[d.fm.id] : d.fm.name));
+      .attr("fill", (d) => ink(d.fm.color))
+      .call((t) => {
+        t.select(".nm").text((d) => d.name);
+        t.select(".n").text((d) => d.fm.count);
+      });
+  }
+
+  // ---------- trait blobs: joined only when the toggles change; zoom frames just move them ----------
+  function drawBlobs() {
+    const on = TRAITS.filter((t) => activeTraits.has(t.id));
+    blobSel = gBlobs.selectAll("g.trait").data(on, (t) => t.id)
+      .join((e) => e.append("g").attr("class", "trait").attr("filter", "url(#goo)").attr("fill", (t) => t.color))
+      .selectAll("circle").data((t) => styles.filter((s) => s.traits.includes(t.id))).join("circle");
+    if (!on.length) blobSel = null;
+    renderTraitHint(on);
+    update();
+  }
+  function renderTraitHint(on) {
+    const el = $("traitHint");
+    if (!on.length) { el.hidden = true; el.innerHTML = ""; return; }
+    const dot = (t) => `<i style="--t:${t.color}"></i>`;
+    if (on.length === 1) {
+      const n = styles.filter((s) => s.traits.includes(on[0].id)).length;
+      el.innerHTML = `${dot(on[0])}<span>Shaded: <b>${n}</b> ${esc(on[0].name.toLowerCase())} styles</span>`;
+    } else {
+      const both = styles.filter((s) => on.every((t) => s.traits.includes(t.id))).length;
+      const what = on.length === 2 ? on.map((t) => esc(t.name)).join(" + ") : `all ${on.length}`;
+      el.innerHTML = `<span class="venn">${on.slice(0, 3).map(dot).join("")}</span><span>Overlap = ${what} · <b>${both}</b> ${both === 1 ? "style" : "styles"}</span>`;
+    }
+    el.hidden = false;
   }
 
   // ---------- highlight ----------
   function setLit(set) {
     litSet = set && set.size ? set : null;
+    litLinks = litSet ? linkData.filter((d) => litSet.has(d.parent) && litSet.has(d.child)) : [];
     nodeSel.classed("dim", (s) => !!litSet && !litSet.has(s)).classed("selected", (s) => s === selected);
-    linkSel.classed("dim", (d) => !!litSet && !(litSet.has(d.parent) && litSet.has(d.child)))
-      .classed("lit", (d) => !!litSet && litSet.has(d.parent) && litSet.has(d.child));
+    linkSel.classed("dim", (d) => !!litSet && !litLinks.includes(d)).classed("lit", (d) => litLinks.includes(d));
+    linkSel.filter((d) => litLinks.includes(d)).raise();
     gBands.selectAll("path").classed("dim", (ln) => !!litSet && !ln.members.some((s) => litSet.has(s)));
+    gBlobs.classed("muted", !!litSet);
     nodeSel.attr("tabindex", (s) => (litSet ? (litSet.has(s) ? 0 : -1) : s.parentLinks.length === 0 || s.nDesc >= 3 ? 0 : -1));
+    drawFlow();
     update();
   }
   const lineageOf = (s) => new Set([s, ...s.ancestorSet, ...s.descendantSet]);
@@ -738,7 +905,10 @@
     const dur = animate ? DUR : 0;
     if (isStyle(d)) {
       select(d, "half", focusPanel);
-      fitStyles([...lineageOf(d)], dur, d);
+      // a side panel leaves room for the whole lineage; above a bottom sheet, frame the style with its
+      // parents and children, and the rest of the lit lineage is a pan away
+      const near = [d, ...d.parentLinks.map((p) => p.node), ...d.kids.map((k) => k.node)];
+      fitStyles(sidePanel() ? [...lineageOf(d)] : near, dur, d);
     } else {
       select(d, "peek", focusPanel);
       fitStyles(styles.filter((s) => s.ancestors().includes(d)), dur);
@@ -749,6 +919,7 @@
     if (hovered) nodeSel.filter((n) => n === hovered).classed("hovered", false);
     hovered = d;
     linkSel.classed("hot", (l) => !!d && (l.parent === d || l.child === d));
+    update();
     if (!d) { tooltip.hidden = true; return; }
     nodeSel.filter((n) => n === d).classed("hovered", true);
     const sub = [d.data.yearLabel || (d.year < 0 ? `${-d.year} BCE` : d.year), fmtRange(d.data.abv, "% ABV")].join(" · ");
@@ -782,12 +953,21 @@
   }
 
   // ---------- panel ----------
+  // body classes the layout keys off: a side panel squeezes the top bar; a raised bottom sheet folds away
+  // the family chips so the map keeps as much height as possible
+  function syncPanelChrome() {
+    const open = panelState !== "closed";
+    document.body.classList.toggle("side-open", sidePanel() && open);
+    document.body.classList.toggle("sheet-open", !sidePanel() && open);
+    document.body.classList.toggle("sheet-up", !sidePanel() && (panelState === "half" || panelState === "full"));
+  }
   function openPanel(state) {
     panelState = state;
     panel.dataset.state = state;
     panel.setAttribute("aria-hidden", "false");
     panel.inert = false;
-    document.body.classList.toggle("side-open", sidePanel());
+    syncPanelChrome();
+    refreshView();
   }
   function closePanel(rezoom = true) {
     if (panelState === "closed" && !selected) return;
@@ -797,8 +977,9 @@
     panel.dataset.state = "closed";
     panel.setAttribute("aria-hidden", "true");
     panel.inert = true;
-    document.body.classList.remove("side-open");
     selected = null;
+    syncPanelChrome();
+    refreshView();
     setLit(null);
     renderCrumbs(null);
     try { history.replaceState(null, "", location.pathname + location.search); } catch { /* ignore */ }
@@ -833,13 +1014,15 @@
   function renderPanel(d, swapping) {
     const data = d.data;
     const fam = famOf(d);
-    const path = d.ancestors().reverse().slice(1, -1).map((a) => a.data.name);
+    const path = d.ancestors().reverse().slice(1, -1);
     const style = isStyle(d);
     const icon = style
       ? `<span class="glass" aria-hidden="true" style="background:linear-gradient(to bottom, ${srmColor(data.srm?.[0])}, ${srmColor(data.srm?.[1])})"></span>`
       : `<span class="fam-badge" aria-hidden="true" style="background:${fam.color}"></span>`;
     let h = `<div class="p-head">
-      <div class="p-eyebrow"><span class="dot" style="background:${fam.color}"></span><span>${esc(path.length ? path.join(" / ") : "Beer family")}</span></div>
+      <nav class="p-eyebrow" aria-label="Breadcrumb"><span class="dot" style="background:${fam.color}"></span>${path.length
+        ? path.map((a) => `<button type="button" class="crumb" data-id="${esc(a.uid)}">${esc(a.data.name)}</button>`).join('<span class="sep" aria-hidden="true">/</span>')
+        : "<span>Beer family</span>"}</nav>
       <div class="p-title">${icon}<h2 tabindex="-1">${esc(data.name)}</h2></div>`;
     const tags = [];
     if (data.bjcp) tags.push(`BJCP ${esc(data.bjcp)}`);
@@ -917,7 +1100,7 @@
     if (swapping && !reduceMotion) {
       panelBody.classList.remove("swap"); void panelBody.offsetWidth; panelBody.classList.add("swap");
     }
-    panelBody.querySelectorAll(".kid").forEach((b) => b.addEventListener("click", (e) => {
+    panelBody.querySelectorAll(".kid, .crumb").forEach((b) => b.addEventListener("click", (e) => {
       e.stopPropagation();
       const n = byId.get(b.dataset.id);
       if (n) goTo(n, true, e.detail === 0);
@@ -1026,7 +1209,7 @@
   // ---------- traits (Venn overlay) ----------
   function buildTraits() {
     const nav = $("traits");
-    nav.innerHTML = `<span class="traits-label" aria-hidden="true">Overlay</span>` + TRAITS.map((t) => {
+    nav.innerHTML = `<span class="traits-label" aria-hidden="true">Shade</span>` + TRAITS.map((t) => {
       const n = styles.filter((s) => s.traits.includes(t.id)).length;
       return `<button type="button" class="trait-chip" data-id="${t.id}" aria-pressed="false" style="--t:${t.color}"><span class="dot" aria-hidden="true"></span>${esc(t.name)}<span class="n">${n}</span></button>`;
     }).join("");
@@ -1034,9 +1217,8 @@
       const id = b.dataset.id;
       if (activeTraits.has(id)) activeTraits.delete(id); else activeTraits.add(id);
       b.setAttribute("aria-pressed", activeTraits.has(id) ? "true" : "false");
-      nav.classList.toggle("multi", activeTraits.size > 1);
       hint.classList.add("gone");
-      update();
+      drawBlobs();
     }));
   }
 
@@ -1126,9 +1308,21 @@
     goTo(r.d, true, fromKeyboard);
   }
 
+  // ---------- key (a popover on phones, an inline row on desktop) ----------
+  const keyBtn = $("keyBtn"), keyEl = $("key");
+  const keyOpen = () => keyBtn.getAttribute("aria-expanded") === "true";
+  function setKey(open) {
+    keyBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    keyEl.classList.toggle("open", open);
+    if (open) hint.classList.add("gone");
+  }
+  keyBtn.addEventListener("click", () => setKey(!keyOpen()));
+  document.addEventListener("pointerdown", (e) => { if (keyOpen() && !e.target.closest("#key, #keyBtn")) setKey(false); });
+
   // ---------- keyboard ----------
   document.addEventListener("keydown", (e) => {
     const typing = document.activeElement === searchInput;
+    if (e.key === "Escape" && keyOpen()) { setKey(false); keyBtn.focus(); return; }
     if (e.key === "Escape" && !typing) {
       if (panelState !== "closed" || selected) closePanel();
       else fitHome();
