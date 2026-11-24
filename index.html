@@ -38,14 +38,15 @@
     <nav class="families" id="families" aria-label="Beer families"></nav>
     <div class="subbar">
       <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"><ol></ol></nav>
-      <div class="legend" role="img" aria-label="Bubble colour shows beer colour, from pale (SRM 2) to black (SRM 40)">
+      <div class="legend" role="img" aria-label="Dot colour shows beer colour, from pale (SRM 2) to black (SRM 40)">
         <span aria-hidden="true">Pale</span><i aria-hidden="true"></i><span aria-hidden="true">Dark</span>
       </div>
     </div>
   </header>
 
   <main id="stage" class="stage">
-    <svg id="chart" role="group" aria-label="Zoomable bubble chart of beer styles. Use Tab to move between bubbles and Enter to open one."></svg>
+    <svg id="chart" role="group" aria-label="Beer River: every beer style placed on a timeline, grouped into family streams, with lines tracing which styles descended from which. Use Tab to move between styles and Enter to open one."></svg>
+    <nav class="traits" id="traits" aria-label="Highlight styles by trait"></nav>
     <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
     <div class="hint" id="hint" aria-hidden="true">Tap a bubble to explore · pinch to zoom</div>
     <div class="loading" id="loading" role="status"><span class="loading-glass" aria-hidden="true"></span>Pouring…</div>

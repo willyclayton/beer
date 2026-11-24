@@ -221,18 +221,108 @@ button { font: inherit; color: inherit; }
 .stage { position: fixed; inset: 0; touch-action: none; }
 #chart { width: 100%; height: 100%; display: block; cursor: grab; user-select: none; -webkit-user-select: none; }
 #chart:active { cursor: grabbing; }
-#chart circle { cursor: pointer; transition: stroke-width .2s, opacity .3s; outline: none; }
-#chart circle.group { stroke-width: 1.2; }
-#chart circle.style-leaf { stroke-width: 1.5; }
-#chart circle.hovered { stroke: var(--accent) !important; stroke-width: 2.5; stroke-opacity: 1 !important; }
-#chart circle:focus-visible { stroke: var(--accent) !important; stroke-width: 3; stroke-opacity: 1 !important; stroke-dasharray: 5 3; }
-#chart circle.selected { stroke: var(--accent) !important; stroke-width: 3.5; stroke-opacity: 1 !important; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 70%, transparent)); }
+/* ---------- Beer River ---------- */
+#chart .bands path { fill-opacity: .11; transition: fill-opacity .35s; }
+#chart .bands path.dim { fill-opacity: .045; }
+#chart .grid line { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 6; vector-effect: non-scaling-stroke; }
+#chart .sankey .ribbon { fill-opacity: .2; transition: fill-opacity .35s; }
+#chart .sankey .source { fill-opacity: .9; }
+#chart .links path { fill: none; stroke-linecap: round; stroke-opacity: .55; transition: stroke-opacity .3s; }
+#chart .links path.inspired { stroke-dasharray: 6 5; }
+#chart .links path.revival { stroke-dasharray: 1.5 5; }
+#chart .links path.dim { stroke-opacity: .07; }
+#chart .links path.lit { stroke-opacity: .95; }
+#chart .links path.hot { stroke-opacity: 1; }
+#chart .links path.draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw-link 1s var(--ease-out) both; }
+@keyframes draw-link { to { stroke-dashoffset: 0; } }
+#chart .world.fade-in .bands, #chart .world.fade-in .sankey { animation: fade-in .9s ease-out both; }
+@keyframes fade-in { from { opacity: 0; } }
+
+#chart .blobs g { opacity: .3; mix-blend-mode: multiply; pointer-events: none; }
+:root[data-theme="dark"] #chart .blobs g { opacity: .34; mix-blend-mode: screen; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #chart .blobs g { opacity: .34; mix-blend-mode: screen; } }
+
+#chart circle.node {
+  cursor: pointer; stroke-width: 1.6; outline: none;
+  transition: opacity .3s, stroke-width .2s;
+  transform-box: fill-box; transform-origin: center;
+}
+#chart circle.node.historical { stroke-dasharray: 2 2; }
+#chart circle.node.enter { animation: node-in .55s var(--ease-out) both; }
+@keyframes node-in { from { transform: scale(0); opacity: 0; } }
+#chart circle.node.dim { opacity: .16; }
+#chart circle.node.hovered { stroke: var(--accent); stroke-width: 2.6; }
+#chart circle.node:focus-visible { stroke: var(--accent); stroke-width: 3; stroke-dasharray: 4 2; }
+#chart circle.node.selected { stroke: var(--accent); stroke-width: 3.4; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 75%, transparent)); }
+
 #chart .labels { pointer-events: none; }
-#chart .labels text { paint-order: stroke; stroke-linejoin: round; font-family: inherit; }
-#chart .labels .lbl-group { font-weight: 700; letter-spacing: -.005em; }
-#chart .labels .lbl-fam { font-weight: 800; letter-spacing: -.015em; }
-#chart .labels .lbl-leaf { font-weight: 600; }
-#chart .labels .lbl-count { font-weight: 600; fill: var(--text-2); }
+#chart .labels text {
+  paint-order: stroke; stroke: var(--halo); stroke-width: 3.2px; stroke-linejoin: round;
+  fill: var(--text-2); font-weight: 600; font-family: inherit; letter-spacing: -.005em;
+}
+#chart .labels text.lit { fill: var(--text); }
+#chart .labels text.sel { fill: var(--text); font-weight: 800; }
+
+#chart .overlay { pointer-events: none; }
+#chart .overlay .axis-bg { fill: var(--bg); fill-opacity: .82; }
+#chart .overlay .tick { font-size: 11px; font-weight: 700; fill: var(--text-2); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+#chart .overlay .lane {
+  font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em;
+  paint-order: stroke; stroke: var(--halo); stroke-width: 3px; stroke-linejoin: round;
+}
+#chart .overlay .src {
+  font-size: 12px; font-weight: 800; letter-spacing: .01em;
+  paint-order: stroke; stroke: var(--halo); stroke-width: 3px; stroke-linejoin: round;
+}
+
+/* trait toggles: a thumb-reachable bar at the bottom */
+.traits {
+  position: fixed; z-index: 15; left: 0; right: 0;
+  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  padding: 4px 16px;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+          mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+}
+.traits::-webkit-scrollbar { display: none; }
+.traits-label { flex: none; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; color: var(--text-2); padding-right: 2px; }
+.trait-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 7px;
+  min-height: 40px; padding: 0 13px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--glass); color: var(--text);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  font-size: 13px; font-weight: 650; cursor: pointer; box-shadow: var(--shadow-sm);
+  transition: background .2s, border-color .2s, transform .15s;
+}
+.trait-chip:active { transform: scale(.96); }
+.trait-chip .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--t); opacity: .55; transition: opacity .2s, box-shadow .2s; }
+.trait-chip .n { font-size: 11.5px; font-weight: 700; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.trait-chip[aria-pressed="true"] {
+  border-color: var(--t);
+  background: color-mix(in srgb, var(--t) 22%, var(--surface-solid));
+}
+.trait-chip[aria-pressed="true"] .dot { opacity: 1; box-shadow: 0 0 0 3px color-mix(in srgb, var(--t) 30%, transparent); }
+.traits.multi::after {
+  content: "Overlaps = both traits"; flex: none; font-size: 11.5px; font-weight: 600; color: var(--text-2); padding-left: 4px;
+}
+body:has(.panel:not([data-state="closed"])) .traits { opacity: 0; pointer-events: none; }
+@media (min-width: 900px) {
+  body:has(.panel:not([data-state="closed"])) .traits { opacity: 1; pointer-events: auto; }
+  .traits { left: 16px; right: auto; max-width: calc(100vw - var(--side-w) - 64px); padding: 4px 0; -webkit-mask-image: none; mask-image: none; flex-wrap: wrap; bottom: 16px; }
+}
+
+/* lineage list in the panel */
+.lineage { margin-top: 10px; }
+.lineage h4 { margin: 0 0 8px; font-size: 12px; font-weight: 700; color: var(--text-2); }
+.lineage ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.lineage ul.led { display: flex; flex-wrap: wrap; gap: 8px; }
+.lineage li { display: grid; gap: 4px; justify-items: start; }
+.lineage .kid .yr { font-size: 11.5px; font-weight: 600; color: var(--text-2); margin-left: 2px; }
+.kind { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--text-2); }
+.kind.inspired { color: var(--accent); }
+.lnote { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.lnote a { color: var(--text-2); font-size: 12px; }
+.tdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
 
 .tooltip {
   position: fixed; z-index: 25; pointer-events: none;
@@ -245,7 +335,7 @@ button { font: inherit; color: inherit; }
 
 .hint {
   position: fixed; left: 50%; transform: translateX(-50%);
-  bottom: calc(env(safe-area-inset-bottom) + 20px);
+  bottom: calc(env(safe-area-inset-bottom) + 66px);
   padding: 9px 15px; border-radius: 999px; font-size: 13px; font-weight: 500; color: var(--text-2);
   background: var(--glass); border: 1px solid var(--line); white-space: nowrap; box-shadow: var(--shadow-sm);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
