@@ -38,7 +38,7 @@
     { id: "crisp", name: "Light & crisp", color: "#4FAEE0", test: (d) => mid(d.data.srm) <= 5 && mid(d.data.abv) <= 5.2 },
   ];
   const TICKS = [1000, 1500, 1600, 1700, 1800, 1850, 1900, 1950, 1980, 2000, 2010, 2020];
-  const T_LEN = 2600, LANE_GAP = 44, LANE_UNIT = 15, SANKEY_W = 300, COLLIDE = 21;
+  const T_LEN = 2600, LANE_GAP = 60, SANKEY_W = 300, COLLIDE = 19;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const DUR = reduceMotion ? 0 : 750;
   const canHover = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
@@ -232,7 +232,7 @@
     let l = 0;
     lanes = fams.map((f) => {
       const members = styles.filter((s) => famOf(s) === f);
-      const th = Math.max(76, Math.pow(members.length, 0.8) * LANE_UNIT);
+      const th = Math.max(90, members.length * 9.5);
       const lane = { f, members, l0: l, l1: l + th, mid: l + th / 2 };
       f.lane = lane;
       l += th + LANE_GAP;
@@ -240,15 +240,32 @@
     });
     L_LEN = l - LANE_GAP;
 
-    // place styles: time fixed-ish on x, packed inside their lane on y
-    const rnd = d3.randomLcg(7);
+    // within each lane, order styles like a family tree: depth-first through the lineage,
+    // so a style's descendants sit right beside it and the lines fan out instead of piling up
+    lanes.forEach((ln) => {
+      const inLane = new Set(ln.members);
+      const primary = (s) => s.parentLinks.map((p) => p.node).find((n) => inLane.has(n) && n.year <= s.year + 1);
+      const kidsOf = new Map(ln.members.map((s) => [s, []]));
+      const roots = [];
+      ln.members.forEach((s) => { const p = primary(s); if (p) kidsOf.get(p).push(s); else roots.push(s); });
+      const byYear = (a, b) => a.year - b.year || a.data.name.localeCompare(b.data.name);
+      const order = [];
+      const seen = new Set();
+      const dfs = (s) => { if (seen.has(s)) return; seen.add(s); order.push(s); kidsOf.get(s).sort(byYear).forEach(dfs); };
+      roots.sort(byYear).forEach(dfs);
+      ln.members.forEach((s) => { if (!seen.has(s)) dfs(s); });
+      const pad = 22, span = ln.l1 - ln.l0 - pad * 2;
+      order.forEach((s, i) => { s.slotL = ln.l0 + pad + ((i + 0.5) / order.length) * span; });
+    });
+
+    // place styles: time fixed-ish on x, family-tree slot on y, then relax overlaps
     const pts = styles.map((s) => {
       const lane = famOf(s).lane;
-      return { s, lane, t: tScale(s.year), x: tScale(s.year), y: lane.mid + (rnd() - 0.5) * (lane.l1 - lane.l0) * 0.6, r: COLLIDE + Math.sqrt(s.nDesc) * 2.2 };
+      return { s, lane, t: tScale(s.year), x: tScale(s.year), y: s.slotL, r: COLLIDE + Math.sqrt(s.nDesc) * 2 };
     });
     const sim = d3.forceSimulation(pts)
-      .force("x", d3.forceX((p) => p.t).strength(0.75))
-      .force("y", d3.forceY((p) => p.lane.mid).strength(0.035))
+      .force("x", d3.forceX((p) => p.t).strength(0.8))
+      .force("y", d3.forceY((p) => p.s.slotL).strength(0.22))
       .force("c", d3.forceCollide((p) => p.r).strength(0.9).iterations(3))
       .stop();
     for (let i = 0; i < 360; i++) {
@@ -469,14 +486,21 @@
   }
 
   // fit a box (screen-space after zoom) into the view; remembers the request so it can be re-applied
-  function fitBox(box, { dur = DUR, maxZ = 7, minZ = 0.9, alignStart = false } = {}) {
-    lastFit = () => fitBox(box, { dur: 0, maxZ, minZ, alignStart });
+  function fitBox(box, { dur = DUR, maxZ = 7, minZ = 0.9, alignStart = false, focusXY = null } = {}) {
+    lastFit = () => fitBox(box, { dur: 0, maxZ, minZ, alignStart, focusXY });
     const v = viewRect();
     const vw = v.x1 - v.x0, vh = v.y1 - v.y0;
     const bw = Math.max(1, box.x1 - box.x0), bh = Math.max(1, box.y1 - box.y0);
     let k = alignStart && vertical ? vw / bw : Math.min(vw / bw, vh / bh) * 0.94;
+    const fits = k >= homeK * minZ;
     k = clamp(k, homeK * minZ, homeK * maxZ);
     let cx = (box.x0 + box.x1) / 2, cy = (box.y0 + box.y1) / 2;
+    if (!fits && focusXY) {
+      // box too big at a legible zoom: keep the chosen style in view, as close to the box centre as allowed
+      const hw = vw / 2 / k, hh = vh / 2 / k;
+      cx = clamp(cx, focusXY[0] - hw * 0.8, focusXY[0] + hw * 0.8);
+      cy = clamp(cy, focusXY[1] - hh * 0.8, focusXY[1] + hh * 0.8);
+    }
     let tx = (v.x0 + v.x1) / 2 - k * cx, ty = (v.y0 + v.y1) / 2 - k * cy;
     if (alignStart && vertical) ty = v.y0 - k * box.y0;
     const t = d3.zoomIdentity.translate(tx, ty).scale(k);
@@ -489,9 +513,9 @@
     const xy = list.map(nodeXY);
     return { x0: d3.min(xy, (p) => p[0]) - pad, x1: d3.max(xy, (p) => p[0]) + pad, y0: d3.min(xy, (p) => p[1]) - pad, y1: d3.max(xy, (p) => p[1]) + pad };
   }
-  function fitStyles(list, dur = DUR) {
+  function fitStyles(list, dur = DUR, focus = null) {
     if (!list.length) return;
-    fitBox(boxOf(list, list.length === 1 ? 220 : 70), { dur, maxZ: list.length === 1 ? 3 : 5, minZ: sidePanel() ? 1 : 1.5 });
+    fitBox(boxOf(list, list.length === 1 ? 220 : 70), { dur, maxZ: list.length === 1 ? 3 : 5, minZ: sidePanel() ? 1 : 1.5, focusXY: focus ? nodeXY(focus) : null });
   }
 
   function resize() {
@@ -539,14 +563,15 @@
           .attr("cx", (s) => pos.get(s)[0]).attr("cy", (s) => pos.get(s)[1]).attr("r", (s) => nodeR(s) + 13 * z);
       });
 
-    placeLabels(pos, v, z);
-    drawOverlay(v);
+    const laneLabels = computeLaneLabels(v);
+    placeLabels(pos, v, z, laneLabels.filter((d) => d.show).map((d) => d.box));
+    drawOverlay(v, laneLabels);
   }
 
   // greedy, priority-ordered label placement: only labels that fit are shown
-  function placeLabels(pos, v, z) {
+  function placeLabels(pos, v, z, obstacles = []) {
     const fs = clamp(10.5 * Math.sqrt(z), 10.5, 13.5);
-    const placed = [];
+    const placed = obstacles.slice();
     const lit = litSet;
     const prio = (s) => (s === selected ? 1e6 : 0) + (lit && lit.has(s) ? 1e5 : 0) + (s === hovered ? 2e5 : 0) + s.nDesc * 10 + (hasKids(s) ? 25 : 0) - s.labelW;
     const order = styles.slice().sort((a, b) => prio(b) - prio(a));
@@ -570,7 +595,8 @@
            { x: x - r - 4, y: y + fs * 0.35, a: "end", box: { x0: x - r - 6 - w, x1: x - r - 2, y0: y - h / 2, y1: y + h / 2 } }]
         : [{ x, y: y - r - 4, a: "middle", box: { x0: x - w / 2 - 2, x1: x + w / 2 + 2, y0: y - r - 4 - fs, y1: y - r - 1 } },
            { x, y: y + r + fs + 1, a: "middle", box: { x0: x - w / 2 - 2, x1: x + w / 2 + 2, y0: y + r, y1: y + r + fs + 4 } },
-           { x: x + r + 4, y: y + fs * 0.35, a: "start", box: { x0: x + r + 2, x1: x + r + 6 + w, y0: y - h / 2, y1: y + h / 2 } }];
+           { x: x + r + 4, y: y + fs * 0.35, a: "start", box: { x0: x + r + 2, x1: x + r + 6 + w, y0: y - h / 2, y1: y + h / 2 } },
+           { x: x - r - 4, y: y + fs * 0.35, a: "end", box: { x0: x - r - 6 - w, x1: x - r - 2, y0: y - h / 2, y1: y + h / 2 } }];
       const c = cands.find((c) => c.box.x0 >= v.x0 - 4 && c.box.x1 <= v.x1 + 4 && !hit(c.box));
       if (!c) continue;
       placed.push(c.box);
@@ -589,8 +615,31 @@
     });
   }
 
+  // lane names: just before the lane begins (end of the sankey ribbons), pinned to the view edge when scrolled
+  function computeLaneLabels(v) {
+    const out = lanes.map((ln) => {
+      if (vertical) {
+        const x = transform.applyX(ln.mid);
+        const y = Math.max(v.y0 + 14, transform.applyY(0) - 10);
+        return { ln, x, y, name: SHORT_NAMES[ln.f.data.id] || ln.f.data.name };
+      }
+      const y = transform.applyY(ln.l0) - 6;
+      const x = Math.max(v.x0 + 6, transform.applyX(0) + 6);
+      return { ln, x, y, name: ln.f.data.name };
+    });
+    measureCtx.font = `800 11px ${FONT_STACK}`;
+    let prevEnd = -1e9;
+    out.forEach((d) => {
+      const w = measureCtx.measureText(d.name.toUpperCase()).width * 1.12 + 8;
+      if (vertical) { d.show = d.x - w / 2 > prevEnd && d.x > v.x0 && d.x < v.x1; if (d.show) prevEnd = d.x + w / 2; }
+      else d.show = d.y > v.y0 + 4 && d.y < v.y1;
+      d.box = vertical ? { x0: d.x - w / 2, x1: d.x + w / 2, y0: d.y - 11, y1: d.y + 3 } : { x0: d.x - 2, x1: d.x + w, y0: d.y - 11, y1: d.y + 3 };
+    });
+    return out;
+  }
+
   // sticky time axis, lane names and sankey source names (screen space)
-  function drawOverlay(v) {
+  function drawOverlay(v, laneLabels) {
     const ticks = TICKS.filter((y) => y >= tScale.domain()[0]);
     const tickData = ticks.map((y) => {
       const [wx, wy] = P(tScale(y), 0);
@@ -613,24 +662,7 @@
       .text((d) => d.label);
 
     // lane names: pinned to the start of the visible area
-    // lane names: just before the lane begins (end of the sankey ribbons), pinned to the view edge when scrolled
-    const laneLbls = lanes.map((ln) => {
-      if (vertical) {
-        const x = transform.applyX(ln.mid);
-        const y = Math.max(v.y0 + 14, transform.applyY(0) - 10);
-        return { ln, x, y, name: SHORT_NAMES[ln.f.data.id] || ln.f.data.name };
-      }
-      const y = transform.applyY(ln.l0) - 6;
-      const x = Math.max(v.x0 + 6, transform.applyX(0) + 6);
-      return { ln, x, y, name: ln.f.data.name };
-    });
-    measureCtx.font = `800 11px ${FONT_STACK}`;
-    let prevEnd = -1e9;
-    laneLbls.forEach((d) => {
-      const w = measureCtx.measureText(d.name.toUpperCase()).width + 8;
-      if (vertical) { d.show = d.x - w / 2 > prevEnd && d.x > v.x0 && d.x < v.x1; if (d.show) prevEnd = d.x + w / 2; }
-      else d.show = d.y > v.y0 + 4 && d.y < v.y1;
-    });
+    const laneLbls = laneLabels;
     gOverlay.selectAll("text.lane").data(laneLbls.filter((d) => d.show), (d) => d.ln.f.uid).join("text")
       .attr("class", "lane")
       .attr("x", (d) => d.x).attr("y", (d) => d.y)
@@ -706,7 +738,7 @@
     const dur = animate ? DUR : 0;
     if (isStyle(d)) {
       select(d, "half", focusPanel);
-      fitStyles([...lineageOf(d)], dur);
+      fitStyles([...lineageOf(d)], dur, d);
     } else {
       select(d, "peek", focusPanel);
       fitStyles(styles.filter((s) => s.ancestors().includes(d)), dur);

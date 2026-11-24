@@ -228,10 +228,10 @@ button { font: inherit; color: inherit; }
 #chart .sankey .ribbon { fill-opacity: .2; transition: fill-opacity .35s; }
 #chart .sankey .source { fill-opacity: .9; }
 #chart .links path { fill: none; stroke-linecap: round; stroke-opacity: .55; transition: stroke-opacity .3s; }
-#chart .links path.inspired { stroke-dasharray: 6 5; }
+#chart .links path.inspired { stroke-dasharray: 6 5; stroke-opacity: .3; }
 #chart .links path.revival { stroke-dasharray: 1.5 5; }
 #chart .links path.dim { stroke-opacity: .07; }
-#chart .links path.lit { stroke-opacity: .95; }
+#chart .links path.lit { stroke-opacity: .95 !important; }
 #chart .links path.hot { stroke-opacity: 1; }
 #chart .links path.draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw-link 1s var(--ease-out) both; }
 @keyframes draw-link { to { stroke-dashoffset: 0; } }
