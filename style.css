@@ -604,3 +604,82 @@ body.side-open .traits { right: calc(var(--side-w) + 24px); }
     animation-duration: 0.01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important;
   }
 }
+
+/* ---------- spacing & enhancements ---------- */
+/* milestones: faint guide lines, a Prohibition band, diamonds on the axis */
+#chart .grid line.event { stroke: var(--accent); stroke-opacity: .22; stroke-width: 1; stroke-dasharray: 1 5; vector-effect: non-scaling-stroke; }
+#chart .grid rect.era { fill: var(--text); fill-opacity: .045; }
+#chart .overlay g.event { pointer-events: auto; cursor: pointer; }
+#chart .overlay g.event .hit { fill: transparent; }
+#chart .overlay g.event .mark { fill: var(--accent); stroke: var(--bg); stroke-width: 1.5px; transition: transform .15s; }
+#chart .overlay g.event:hover .mark { transform: scale(1.35); }
+#chart .overlay .lane { pointer-events: auto; cursor: pointer; }
+
+/* trait toggles collapse behind one button */
+.traits { pointer-events: none; }
+.traits > * { pointer-events: auto; }
+.traits:not(.open) .trait-chip { display: none; }
+.traits-toggle {
+  flex: none; display: inline-flex; align-items: center; gap: 7px;
+  min-height: 40px; padding: 0 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--glass); color: var(--text);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: var(--shadow-sm);
+}
+.traits-toggle[aria-expanded="true"] { border-color: var(--accent); }
+.traits-toggle .badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font-size: 11px; display: grid; place-items: center; }
+.traits-toggle .badge[hidden] { display: none; }
+
+/* stories card */
+.stories {
+  position: fixed; z-index: 16; left: 50%; transform: translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom) + 64px);
+  width: min(420px, calc(100vw - 24px));
+  padding: 12px; border-radius: 20px;
+  background: var(--surface-solid); border: 1px solid var(--line); box-shadow: var(--shadow);
+  animation: stories-in .5s var(--ease-out) both;
+  transition: opacity .3s, transform .3s var(--ease-out);
+}
+@keyframes stories-in { from { opacity: 0; transform: translate(-50%, 14px); } }
+.stories.gone { opacity: 0; transform: translate(-50%, 14px); pointer-events: none; }
+.stories[hidden] { display: none; }
+.stories-head { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 6px 6px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--text-2); }
+.stories-x { width: 36px; height: 36px; font-size: 22px; line-height: 1; }
+.stories-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.story {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; text-align: left;
+  min-height: 56px; padding: 9px 10px; border-radius: 14px; border: 1px solid var(--line);
+  background: var(--chip); color: var(--text); font: inherit; cursor: pointer;
+  transition: background .2s, border-color .2s, transform .15s;
+}
+.story:hover { border-color: var(--accent); }
+.story:active { transform: scale(.97); }
+.story .sw { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.2); }
+.story b { display: block; font-size: 13.5px; font-weight: 750; line-height: 1.2; }
+.story small { display: block; font-size: 11.5px; color: var(--text-2); margin-top: 2px; line-height: 1.25; }
+.story .cnt { font-size: 11px; font-weight: 700; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.stories-foot { margin: 8px 6px 0; font-size: 12px; color: var(--text-2); }
+body.sheet-open .stories, body.side-open .stories { display: none; }
+@media (min-width: 900px) {
+  .stories { left: 24px; transform: none; bottom: 72px; }
+  @keyframes stories-in { from { opacity: 0; transform: translateY(14px); } }
+  .stories.gone { transform: translateY(14px); }
+}
+
+/* phones: the lane names double as family buttons, so drop the duplicate chip row */
+@media (max-width: 599px) {
+  .families { display: none !important; }
+}
+@media (max-width: 599px) {
+  .stories { padding: 10px; bottom: calc(env(safe-area-inset-bottom) + 62px); }
+  .stories-head { padding-bottom: 4px; }
+  .story { min-height: 48px; padding: 8px 9px; gap: 8px; }
+  .story small { display: none; }
+  .story b { font-size: 13px; }
+  .stories-foot { margin-top: 6px; }
+  .traits.open { flex-wrap: wrap; overflow: visible; -webkit-mask-image: none; mask-image: none; align-items: flex-end; }
+  .traits.open .traits-toggle { order: 9; }
+}
+@media (max-width: 599px) {
+  body:has(.traits.open) .trait-hint { display: none; }
+}

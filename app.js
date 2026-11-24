@@ -38,7 +38,26 @@
     { id: "crisp", name: "Light & crisp", color: "#4FAEE0", test: (d) => mid(d.data.srm) <= 5 && mid(d.data.abv) <= 5.2 },
   ];
   const TICKS = [1000, 1500, 1600, 1700, 1800, 1850, 1900, 1950, 1980, 2000, 2010, 2020];
-  const LANE_GAP = 60, SANKEY_W = 300, COLLIDE = 19;
+  const LANE_GAP = 80, SANKEY_W = 300;
+  let COLLIDE = 19; // dot spacing in world units: set per viewport so dots keep ~24px apart on screen
+  // brewing milestones drawn along the time axis
+  const EVENTS = [
+    { year: 1516, name: "Reinheitsgebot", text: "Bavaria's beer purity law limits ingredients to barley, hops and water." },
+    { year: 1842, name: "First Pilsner", text: "Josef Groll brews the first pale lager in Plzeň, Bohemia." },
+    { year: 1873, name: "Refrigeration", text: "Carl von Linde's refrigeration machine, developed for Munich's Spaten brewery, frees lager from cold cellars." },
+    { year: 1876, name: "Pasteur", text: "Louis Pasteur publishes Études sur la bière, explaining fermentation and spoilage." },
+    { year: 1883, name: "Pure yeast", text: "Emil Christian Hansen isolates a pure lager yeast culture at Carlsberg." },
+    { year: 1920, end: 1933, name: "US Prohibition", text: "Alcohol is banned in the United States (1920–1933); hundreds of breweries close." },
+    { year: 1965, name: "Anchor", text: "Fritz Maytag buys San Francisco's Anchor Brewing, an early spark of American craft beer." },
+    { year: 1971, name: "CAMRA", text: "The Campaign for Real Ale is founded in Britain to save cask ale." },
+    { year: 1978, name: "Homebrewing legal", text: "US federal law legalises homebrewing, seeding the craft beer boom." },
+  ];
+  const STORIES = [
+    { id: "english-porter", title: "The stout family", sub: "Porter → Stout → Imperial" },
+    { id: "english-pale-ale", title: "How IPA took over", sub: "Pale Ale → IPA → Hazy" },
+    { id: "czech-premium-pale-lager", title: "Pilsner conquers the world", sub: "Plzeň, 1842 → everywhere" },
+    { id: "lambic", title: "Wild & sour", sub: "Lambic → Gueuze → American Wild" },
+  ];
   let T_LEN = 2600; // timeline length: set per viewport so the river fills the screen
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const DUR = reduceMotion ? 0 : 750;
@@ -139,7 +158,7 @@
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { syncThemeChrome(); paint(); });
 
   // ---------- load ----------
-  fetch("data/beers.json?v=202611242306")
+  fetch("data/beers.json?v=202611242313")
     .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(init)
     .catch((err) => { $("loading").textContent = "Couldn't load beer data (" + err.message + ")"; console.error(err); });
@@ -175,16 +194,13 @@
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { measureLabels(); update(); });
 
     const startId = decodeURIComponent(location.hash.slice(1));
+    hint.hidden = true; // the stories card is the welcome now
     if (startId && byId.has(startId)) goTo(byId.get(startId), false);
-    else { fitHome(0); entrance(); }
+    else { fitHome(0); entrance(); setTimeout(buildStories, reduceMotion ? 0 : 900); }
     window.addEventListener("hashchange", () => {
       const id = decodeURIComponent(location.hash.slice(1));
       if (id && byId.has(id) && byId.get(id) !== selected) goTo(byId.get(id));
     });
-    hint.textContent = canHover
-      ? "Click a beer to trace its family tree · scroll to zoom, drag to pan"
-      : "Tap a beer to trace its family tree · pinch to zoom";
-    setTimeout(() => hint.classList.add("gone"), 8000);
   }
 
   // ---------- lineage: years, fermentation, parent/child links ----------
@@ -330,10 +346,10 @@
     lanes.forEach((ln) => {
       const samples = [];
       for (let t = 0; t <= T_LEN + 40; t += 20) {
-        const near = ln.members.filter((s) => Math.abs(s.t - t) < 80);
+        const near = ln.members.filter((s) => Math.abs(s.t - t) < Math.max(80, COLLIDE * 3));
         const hb = Math.max(5, (ln.entryW / 2) * Math.exp(-t / 260));
         let lo = ln.mid - hb, hi = ln.mid + hb;
-        near.forEach((s) => { lo = Math.min(lo, s.l - 26); hi = Math.max(hi, s.l + 26); });
+        near.forEach((s) => { lo = Math.min(lo, s.l - COLLIDE * 1.3); hi = Math.max(hi, s.l + COLLIDE * 1.3); });
         samples.push({ t, lo, hi });
       }
       const smooth = (key, fn) => samples.map((p, i) => {
@@ -431,7 +447,7 @@
       .clickDistance(8)
       .tapDistance(12)
       .constrain(constrain)
-      .on("start", (e) => { if (e.sourceEvent) hint.classList.add("gone"); })
+      .on("start", (e) => { if (e.sourceEvent) hideIntro(); })
       .on("zoom", (e) => { transform = e.transform; update(); });
     svg.call(zoom).on("dblclick.zoom", null);
     svg.on("click", (e) => {
@@ -463,9 +479,22 @@
   // geometry that depends on orientation
   function drawWorld() {
     const ticks = TICKS.filter((y) => y >= tScale.domain()[0]);
-    gGrid.selectAll("line").data(ticks).join("line")
+    gGrid.selectAll("line.tickline").data(ticks).join("line").attr("class", "tickline")
       .each(function (y) {
         const [x1, y1] = P(tScale(y), -20), [x2, y2] = P(tScale(y), L_LEN + 20);
+        d3.select(this).attr("x1", x1).attr("y1", y1).attr("x2", x2).attr("y2", y2);
+      });
+
+    gGrid.selectAll("rect.era").data(EVENTS.filter((e) => e.end)).join("rect")
+      .attr("class", "era")
+      .each(function (e) {
+        const [x1, y1] = P(tScale(e.year), -20), [x2, y2] = P(tScale(e.end), L_LEN + 20);
+        d3.select(this).attr("x", Math.min(x1, x2)).attr("y", Math.min(y1, y2)).attr("width", Math.abs(x2 - x1)).attr("height", Math.abs(y2 - y1));
+      });
+    gGrid.selectAll("line.event").data(EVENTS.filter((e) => !e.end)).join("line")
+      .attr("class", "event")
+      .each(function (e) {
+        const [x1, y1] = P(tScale(e.year), -20), [x2, y2] = P(tScale(e.year), L_LEN + 20);
         d3.select(this).attr("x1", x1).attr("y1", y1).attr("x2", x2).attr("y2", y2);
       });
 
@@ -619,10 +648,12 @@
     // phones get one about two screens tall to scroll through
     const hv = viewRect(true), hvw = hv.x1 - hv.x0, hvh = hv.y1 - hv.y0;
     const want = vertical
-      ? Math.max(2000, (hvh / hvw) * (L_LEN + 60) * 1.7 - SANKEY_W - 120)
+      ? Math.max(2400, (hvh / hvw) * (L_LEN + 60) * 3 - SANKEY_W - 120)
       : clamp((hvw / hvh) * (L_LEN + 60) - SANKEY_W - 350, 1800, 5200);
-    const relayout = Math.abs(want - T_LEN) / T_LEN > 0.06;
-    if (relayout) { T_LEN = want; layoutRiver(); }
+    const kEst = (vertical ? hvw : hvh) / (L_LEN + 60);
+    const wantC = clamp(12 / kEst, 19, 90);
+    const relayout = Math.abs(want - T_LEN) / T_LEN > 0.06 || Math.abs(wantC - COLLIDE) / COLLIDE > 0.06;
+    if (relayout) { T_LEN = want; COLLIDE = wantC; layoutRiver(); }
     if (relayout || vertical !== wasVertical || !drawn) { drawWorld(); drawn = true; }
     const v = viewRect(true), b = worldBox();
     homeK = vertical ? (v.x1 - v.x0) / (b.x1 - b.x0) : Math.min((v.x1 - v.x0) / (b.x1 - b.x0), (v.y1 - v.y0) / (b.y1 - b.y0));
@@ -822,6 +853,21 @@
       .attr("text-anchor", vertical ? "end" : "middle")
       .text((d) => d.label);
 
+    const evData = EVENTS.map((e) => {
+      const [wx, wy] = P(tScale(e.end ? (e.year + e.end) / 2 : e.year), 0);
+      return { e, s: vertical ? transform.applyY(wy) : transform.applyX(wx) };
+    }).filter((d) => (vertical ? d.s > v.y0 + 4 && d.s < v.y1 : d.s > v.x0 && d.s < v.x1));
+    gOverlay.selectAll("g.event").data(evData, (d) => d.e.name).join((en) => {
+      const g = en.append("g").attr("class", "event").attr("role", "img").attr("aria-label", (d) => `${d.e.year}: ${d.e.text}`);
+      g.append("circle").attr("class", "hit").attr("r", 14);
+      g.append("path").attr("class", "mark").attr("d", "M0,-4.5L4.5,0L0,4.5L-4.5,0Z");
+      g.on("pointerenter", (ev, d) => { if (ev.pointerType === "mouse") showEvent(d.e, ev); })
+        .on("pointerleave", () => { if (!eventPinned) tooltip.hidden = true; })
+        .on("click", (ev, d) => { ev.stopPropagation(); eventPinned = true; showEvent(d.e, ev); });
+      return g;
+    })
+      .attr("transform", (d) => (vertical ? `translate(${v.x0 - 2},${d.s})` : `translate(${d.s},${axisPos + 9})`));
+
     const band = laneLabels.band;
     gOverlay.select("rect.lane-bg").style("display", band ? null : "none")
       .attr("x", v.x0 - 4).attr("y", band ? band.y0 : 0).attr("width", W).attr("height", band ? band.y1 - band.y0 : 0);
@@ -830,7 +876,8 @@
       .attr("x", (d) => d.x).attr("y", (d) => d.y)
       .attr("text-anchor", vertical ? "middle" : "start")
       .attr("fill", (d) => ink(d.ln.f.color))
-      .text((d) => d.name);
+      .text((d) => d.name)
+      .on("click", (ev, d) => { ev.stopPropagation(); hideIntro(); goTo(d.ln.f); });
 
     gOverlay.selectAll("line.lead").data(srcLabels.filter((d) => d.lead), (d) => d.fm.id).join("line")
       .attr("class", "lead")
@@ -916,7 +963,7 @@
 
   // ---------- interaction ----------
   function activate(d, fromKeyboard) {
-    hint.classList.add("gone");
+    hideIntro();
     goTo(d, true, fromKeyboard);
   }
 
@@ -933,6 +980,16 @@
       fitStyles(styles.filter((s) => s.ancestors().includes(d)), dur);
     }
   }
+
+  let eventPinned = false;
+  function showEvent(e, ev) {
+    tooltip.innerHTML = `<b>${e.end ? `${e.year}–${e.end}` : e.year} · ${esc(e.name)}</b><span>${esc(e.text)}</span>`;
+    tooltip.hidden = false;
+    moveTooltip(ev);
+  }
+  document.addEventListener("pointerdown", (ev) => {
+    if (eventPinned && !(ev.target.closest && ev.target.closest("g.event"))) { eventPinned = false; tooltip.hidden = true; }
+  });
 
   function setHover(d, e) {
     if (hovered) nodeSel.filter((n) => n === hovered).classed("hovered", false);
@@ -1106,6 +1163,12 @@
       h += `</section>`;
     }
 
+    if (style) {
+      const sim = similarTo(d, 4);
+      if (sim.length) h += `<section class="p-section"><h3>Tastes similar</h3><div class="kids">${sim.map((n) =>
+        `<button type="button" class="kid" data-id="${esc(n.uid)}"><span class="swatch" style="background:${srmColor(n.srm)}"></span>${esc(n.data.name)}</button>`).join("")}</div></section>`;
+    }
+
     if (data.sources?.length) {
       h += `<section class="p-section"><h3>Sources</h3><ol class="sources">${data.sources.map((u) => {
         let label = u; try { const url = new URL(u); label = url.hostname.replace(/^www\./, "") + url.pathname.replace(/\/$/, ""); } catch { /* keep */ }
@@ -1217,7 +1280,7 @@
       b.style.setProperty("--fam", f.color);
       b.innerHTML = `<span class="dot" aria-hidden="true" style="background:${f.color}"></span>${esc(f.data.name)}`;
       b.addEventListener("click", () => {
-        hint.classList.add("gone");
+        hideIntro();
         if (selected === f) { closePanel(false); fitHome(); return; }
         goTo(f);
       });
@@ -1228,7 +1291,7 @@
   // ---------- traits (Venn overlay) ----------
   function buildTraits() {
     const nav = $("traits");
-    nav.innerHTML = `<span class="traits-label" aria-hidden="true">Shade</span>` + TRAITS.map((t) => {
+    nav.innerHTML = `<button type="button" class="traits-toggle" aria-expanded="false" aria-controls="traits"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="9" cy="10" r="6" fill="currentColor" opacity=".45"/><circle cx="15" cy="14" r="6" fill="currentColor" opacity=".45"/></svg><span>Shade by trait</span><span class="badge" hidden></span></button>` + TRAITS.map((t) => {
       const n = styles.filter((s) => s.traits.includes(t.id)).length;
       return `<button type="button" class="trait-chip" data-id="${t.id}" aria-pressed="false" style="--t:${t.color}"><span class="dot" aria-hidden="true"></span>${esc(t.name)}<span class="n">${n}</span></button>`;
     }).join("");
@@ -1236,9 +1299,47 @@
       const id = b.dataset.id;
       if (activeTraits.has(id)) activeTraits.delete(id); else activeTraits.add(id);
       b.setAttribute("aria-pressed", activeTraits.has(id) ? "true" : "false");
-      hint.classList.add("gone");
+      const badge = nav.querySelector(".badge");
+      badge.hidden = !activeTraits.size; badge.textContent = activeTraits.size;
+      hideIntro();
       drawBlobs();
     }));
+    const tog = nav.querySelector(".traits-toggle");
+    tog.addEventListener("click", () => {
+      const open = !nav.classList.contains("open");
+      nav.classList.toggle("open", open);
+      tog.setAttribute("aria-expanded", open ? "true" : "false");
+      hideIntro();
+    });
+  }
+
+  // nearest styles by ABV / bitterness / colour (normalised), skipping umbrella styles and itself
+  function similarTo(d, n) {
+    const v = (s) => [mid(s.data.abv) / 12, mid(s.data.ibu) / 80, mid(s.data.srm) / 40];
+    const a = v(d);
+    return styles.filter((s) => s !== d && !hasKids(s) && Array.isArray(s.data.abv))
+      .map((s) => { const b = v(s); return { s, dist: Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) }; })
+      .sort((x, y) => x.dist - y.dist).slice(0, n).map((x) => x.s);
+  }
+
+  // ---------- stories: a friendly way in ----------
+  function buildStories() {
+    const el = $("stories");
+    const list = STORIES.filter((st) => byId.has(st.id));
+    el.innerHTML = `<div class="stories-head"><span>Start with a story</span><button type="button" class="icon-btn stories-x" aria-label="Dismiss">×</button></div>
+      <div class="stories-list">${list.map((st) => {
+        const n = byId.get(st.id);
+        return `<button type="button" class="story" data-id="${st.id}"><span class="sw" style="background:${srmColor(n.srm)}"></span><span><b>${esc(st.title)}</b><small>${esc(st.sub)}</small></span><span class="cnt">${n.nDesc + 1}</span></button>`;
+      }).join("")}</div>
+      <p class="stories-foot">${canHover ? "Or click any beer · scroll to zoom" : "Or tap any beer · pinch to zoom"}</p>`;
+    el.querySelectorAll(".story").forEach((b) => b.addEventListener("click", () => { hideIntro(); goTo(byId.get(b.dataset.id), true, false); }));
+    el.querySelector(".stories-x").addEventListener("click", hideIntro);
+    el.hidden = false;
+  }
+  function hideIntro() {
+    hint.classList.add("gone");
+    const el = $("stories");
+    if (el && !el.hidden) { el.classList.add("gone"); setTimeout(() => { el.hidden = true; }, 350); }
   }
 
   // ---------- random ----------
@@ -1246,7 +1347,7 @@
     if (!styles) return;
     let d;
     do d = styles[Math.floor(Math.random() * styles.length)]; while (styles.length > 1 && d === selected);
-    hint.classList.add("gone");
+    hideIntro();
     const btn = e.currentTarget;
     btn.classList.remove("spin"); void btn.offsetWidth; btn.classList.add("spin");
     goTo(d, true, e.detail === 0);
@@ -1323,7 +1424,7 @@
     hideResults();
     searchInput.value = "";
     searchInput.blur();
-    hint.classList.add("gone");
+    hideIntro();
     goTo(r.d, true, fromKeyboard);
   }
 
@@ -1333,7 +1434,7 @@
   function setKey(open) {
     keyBtn.setAttribute("aria-expanded", open ? "true" : "false");
     keyEl.classList.toggle("open", open);
-    if (open) hint.classList.add("gone");
+    if (open) hideIntro();
   }
   keyBtn.addEventListener("click", () => setKey(!keyOpen()));
   document.addEventListener("pointerdown", (e) => { if (keyOpen() && !e.target.closest("#key, #keyBtn")) setKey(false); });
