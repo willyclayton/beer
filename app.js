@@ -139,7 +139,7 @@
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { syncThemeChrome(); paint(); });
 
   // ---------- load ----------
-  fetch("data/beers.json")
+  fetch("data/beers.json?v=202611242306")
     .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(init)
     .catch((err) => { $("loading").textContent = "Couldn't load beer data (" + err.message + ")"; console.error(err); });
