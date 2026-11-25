@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Beer Style Atlas</title>
   <meta name="description" content="Beer River: every beer style on a timeline, flowing in family streams, with lines tracing which styles descended from which.">
-  <meta name="theme-color" content="#120f0c" media="(prefers-color-scheme: dark)">
-  <meta name="theme-color" content="#f7f2ea" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#17120E" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#F3F5F2" media="(prefers-color-scheme: light)">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍺</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=202611250323">
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=202611250406">
 </head>
 <body>
   <a class="skip-link" href="#searchInput">Skip to search</a>
@@ -73,7 +73,7 @@
           </select>
         </label>
       </div>
-      <div class="list-grid" id="listGrid"></div>
+      <div class="taplist" id="listGrid"></div>
     </section>
     <div class="dock" id="dock">
       <div class="seg" role="tablist" aria-label="View">
@@ -82,7 +82,7 @@
       </div>
       <button type="button" class="find-btn" id="findBtn" aria-expanded="false" aria-controls="finder">
         <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M7 2h10l-1 4H8L7 2zm1.2 6h7.6l-1.1 12.2A2 2 0 0 1 12.7 22h-1.4a2 2 0 0 1-2-1.8L8.2 8z"/></svg>
-        <span>Beer test</span><span class="badge" id="findBadge" hidden></span>
+        <span class="long">Take the beer test</span><span class="short">Beer test</span><span class="badge" id="findBadge" hidden></span>
       </button>
       <button type="button" class="icon-btn traits-btn" id="traitsBtn" aria-expanded="false" aria-controls="traits" aria-label="Shade by trait" title="Shade by trait">
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="9" cy="10" r="6" fill="currentColor" opacity=".5"/><circle cx="15" cy="14" r="6" fill="currentColor" opacity=".5"/></svg>
@@ -91,7 +91,7 @@
     </div>
     <section class="finder" id="finder" aria-label="Beer taste test" hidden>
       <div class="finder-head">
-        <div><h2>The beer test</h2><p>Slide what you like. We'll pick beers for you.</p></div>
+        <div><h2>The beer test</h2><p>Slide what you like and get beers to look for.</p></div>
         <button type="button" class="icon-btn" id="finderClose" aria-label="Close beer test">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
@@ -100,7 +100,7 @@
       <div class="finder-prefs" id="finderPrefs"></div>
       <div class="finder-actions"><button type="button" class="link-btn" id="finderReset" hidden>Reset</button></div>
       <div class="finder-results" id="finderResults" aria-live="polite"></div>
-      <button type="button" class="link-btn finder-all" id="finderAll" hidden>See every style ranked for you →</button>
+      <button type="button" class="link-btn finder-all" id="finderAll" hidden>See every style ranked for you</button>
       <button type="button" class="finder-peek" id="finderPeek" hidden></button>
     </section>
     <div class="trait-hint" id="traitHint" aria-live="polite" hidden></div>
@@ -120,6 +120,6 @@
   <div class="sab-probe" id="sabProbe" aria-hidden="true"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
-  <script src="app.js?v=202611250323"></script>
+  <script src="app.js?v=202611250406"></script>
 </body>
 </html>

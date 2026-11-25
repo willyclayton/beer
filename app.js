@@ -24,9 +24,9 @@
   const SHORT_NAMES = { "wild-sour": "Sour", belgian: "Belgian", wheat: "Wheat", historical: "Historic", ales: "Ales", hybrid: "Hybrid", lagers: "Lagers", specialty: "Specialty" };
   const FERMENTS = [
     { id: "wild", name: "Wild & spontaneous", color: "#E2675A" },
-    { id: "ale", name: "Ale · top-fermented", color: "#E39B3A" },
+    { id: "ale", name: "Ale (top-fermented)", color: "#E39B3A" },
     { id: "hybrid", name: "Hybrid", color: "#8DBA6A" },
-    { id: "lager", name: "Lager · bottom-fermented", color: "#5FB0C9" },
+    { id: "lager", name: "Lager (bottom-fermented)", color: "#5FB0C9" },
   ];
   const SHORT_FERM = { wild: "Wild", ale: "Ale", hybrid: "Hybrid", lager: "Lager" };
   const TRAITS = [
@@ -53,10 +53,10 @@
     { year: 1978, name: "Homebrewing legal", text: "US federal law legalises homebrewing, seeding the craft beer boom." },
   ];
   const STORIES = [
-    { id: "english-porter", title: "The stout family", sub: "Porter → Stout → Imperial" },
-    { id: "english-pale-ale", title: "How IPA took over", sub: "Pale Ale → IPA → Hazy" },
-    { id: "czech-premium-pale-lager", title: "Pilsner conquers the world", sub: "Plzeň, 1842 → everywhere" },
-    { id: "lambic", title: "Wild & sour", sub: "Lambic → Gueuze → American Wild" },
+    { id: "english-porter", title: "The stout family", sub: "From porter to imperial stout" },
+    { id: "english-pale-ale", title: "How IPA took over", sub: "From pale ale to hazy" },
+    { id: "czech-premium-pale-lager", title: "Pilsner conquers the world", sub: "Plzeň in 1842, then everywhere" },
+    { id: "lambic", title: "Wild & sour", sub: "Lambic, gueuze and American wild" },
   ];
   let T_LEN = 2600; // timeline length: set per viewport so the river fills the screen
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -65,7 +65,7 @@
   const canHover = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
   const sideMQ = window.matchMedia("(min-width: 900px), (min-width: 600px) and (max-height: 500px) and (orientation: landscape)");
   const sidePanel = () => sideMQ.matches;
-  const FONT_STACK = 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+  const FONT_STACK = 'Figtree, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
   // ---------- DOM ----------
   const $ = (id) => document.getElementById(id);
@@ -104,6 +104,16 @@
     if (v > 40) return "#140806";
     return SRM_HEX[Math.max(1, Math.round(v)) - 1];
   }
+  // a poured pint in the style's own colour, with a head of foam: the one bold element of the design
+  function glassSvg(s, w = 22, cls = "") {
+    const c = srmColor(s.srm ?? mid(s.data?.srm));
+    return `<svg class="pint ${cls}" viewBox="0 0 24 36" width="${w}" height="${Math.round((w * 36) / 24)}" aria-hidden="true" focusable="false">
+      <path class="beer" d="M2.75 9.4h18.5l-2.06 23.2a2.4 2.4 0 0 1-2.39 2.2H7.2a2.4 2.4 0 0 1-2.39-2.2z" fill="${c}"/>
+      <path class="head" d="M2.2 3.2h19.6l-.55 6.3H2.75z" fill="#FBF7EC"/>
+      <path d="M6.3 12.2l1.3 18.6" stroke="#fff" stroke-opacity=".3" stroke-width="1.3" stroke-linecap="round"/>
+      <path class="rim" d="M1.6 2.4h20.8l-2.62 30.3a3 3 0 0 1-2.99 2.75H7.21a3 3 0 0 1-2.99-2.75z" fill="none" stroke="currentColor" stroke-opacity=".3"/>
+    </svg>`;
+  }
   const famOf = (d) => (d.depth === 0 ? d : d.ancestors().find((a) => a.depth === 1));
   const famColor = (d) => famOf(d).color;
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -122,7 +132,7 @@
   function ink(hex) {
     const dark = isDark, key = hex + dark;
     if (!inkCache.has(key)) {
-      const bg = luminance(dark ? "#120f0c" : "#f7f2ea");
+      const bg = luminance(dark ? "#17120E" : "#F3F5F2");
       const c = d3.lab(hex);
       for (let i = 0; i < 30 && contrast(luminance(c.formatHex()), bg) < 4.6; i++) c.l += dark ? 2 : -2;
       inkCache.set(key, c.formatHex());
@@ -143,7 +153,7 @@
   function syncThemeChrome() {
     const dark = isDark = darkTheme();
     $("themeBtn").setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
-    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", dark ? "#120f0c" : "#f7f2ea"));
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", dark ? "#17120E" : "#F3F5F2"));
   }
   const savedTheme = lsGet("beer-theme");
   if (savedTheme === "light" || savedTheme === "dark") document.documentElement.dataset.theme = savedTheme;
@@ -158,7 +168,7 @@
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { syncThemeChrome(); paint(); });
 
   // ---------- load ----------
-  fetch("data/beers.json?v=202611250323")
+  fetch("data/beers.json?v=202611250406")
     .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(init)
     .catch((err) => { $("loading").textContent = "Couldn't load beer data (" + err.message + ")"; console.error(err); });
@@ -762,7 +772,7 @@
     measureCtx.font = `800 ${fs}px ${FONT_STACK}`;
     const out = lanes.map((ln) => {
       const name = vertical ? SHORT_NAMES[ln.f.data.id] || ln.f.data.name : ln.f.data.name;
-      return { ln, name, w: measureCtx.measureText(name.toUpperCase()).width + name.length * tracking + 4, show: false };
+      return { ln, name, w: measureCtx.measureText(name).width + 6, show: false };
     });
     if (vertical) {
       const ends = [-1e9];
@@ -1097,9 +1107,7 @@
     const fam = famOf(d);
     const path = d.ancestors().reverse().slice(1, -1);
     const style = isStyle(d);
-    const icon = style
-      ? `<span class="glass" aria-hidden="true" style="background:linear-gradient(to bottom, ${srmColor(data.srm?.[0])}, ${srmColor(data.srm?.[1])})"></span>`
-      : `<span class="fam-badge" aria-hidden="true" style="background:${fam.color}"></span>`;
+    const icon = style ? glassSvg(d, 34, "p-pint") : `<span class="fam-badge" aria-hidden="true" style="background:${fam.color}"></span>`;
     let h = `<div class="p-head">
       <nav class="p-eyebrow" aria-label="Breadcrumb"><span class="dot" style="background:${fam.color}"></span>${path.length
         ? path.map((a) => `<button type="button" class="crumb" data-id="${esc(a.uid)}">${esc(a.data.name)}</button>`).join('<span class="sep" aria-hidden="true">/</span>')
@@ -1107,7 +1115,7 @@
       <div class="p-title">${icon}<h2 tabindex="-1">${esc(data.name)}</h2></div>`;
     const tags = [];
     if (data.bjcp) tags.push(`BJCP ${esc(data.bjcp)}`);
-    if (data.origin) tags.push(esc([data.origin.country, data.yearLabel || data.origin.era].filter(Boolean).join(" · ")));
+    if (data.origin) tags.push(esc([data.origin.country, data.yearLabel || data.origin.era].filter(Boolean).join(", ")));
     if (style && d.traits?.length) d.traits.forEach((id) => { const t = TRAITS.find((x) => x.id === id); tags.push(`<span class="tdot" style="background:${t.color}"></span>${esc(t.name)}`); });
     if (!style || hasKids(d)) tags.push(plural(countStyles(d), style ? "sub-style" : "style"));
     if (tags.length) h += `<div class="p-meta">${tags.map((t) => `<span class="tag">${t}</span>`).join("")}</div>`;
@@ -1115,19 +1123,19 @@
     if (data.description) h += `<p class="p-desc">${esc(data.description)}</p>`;
     if (style && Array.isArray(data.abv)) {
       const p = profileOf(d);
-      h += `<section class="p-section"><h3>Flavour profile</h3><div class="fprofile">${PROFILE_KEYS.map((k) =>
+      h += `<section class="p-section"><h3>How it tastes</h3><div class="fprofile">${PROFILE_KEYS.map((k) =>
         `<div class="frow"><span class="k">${PROFILE_LABELS[k]}</span><span class="fbar" role="img" aria-label="${PROFILE_LABELS[k]} ${p[k]} out of 5">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= p[k] ? "on" : ""}"></i>`).join("")}</span></div>`).join("")}</div>`;
       if (data.notes) {
         h += `<dl class="tasting">${["aroma", "flavor", "mouthfeel"].filter((k) => data.notes[k]).map((k) =>
           `<div><dt>${k === "flavor" ? "Flavour" : k[0].toUpperCase() + k.slice(1)}</dt><dd>${esc(data.notes[k])}</dd></div>`).join("")}</dl>`;
       }
-      if (data.tryIf) h += `<p class="tryif">🍺 Try it if ${esc(data.tryIf)}.</p>`;
+      if (data.tryIf) h += `<p class="tryif">Try it if ${esc(data.tryIf)}.</p>`;
       if (!data.profile) h += `<p class="p-foot">Profile estimated from the style's stats.</p>`;
       h += `</section>`;
     }
 
     if (style) {
-      h += `<section class="p-section"><h3>Vital stats</h3><div class="vitals">${vital("abv", data.abv)}${vital("ibu", data.ibu)}${vital("srm", data.srm)}</div></section>`;
+      h += `<section class="p-section"><h3>Strength, bitterness, colour</h3><div class="vitals">${vital("abv", data.abv)}${vital("ibu", data.ibu)}${vital("srm", data.srm)}</div></section>`;
 
       const chips = (arr, cls = "") => `<div class="chips ${cls}">${arr.map((x) => `<span class="chip">${esc(x)}</span>`).join("")}</div>`;
       let rows = "";
@@ -1135,10 +1143,10 @@
       if (data.hops?.length) rows += `<div class="recipe-row"><span class="k">Hops</span>${chips(data.hops, "hops")}</div>`;
       if (data.yeast) rows += `<div class="recipe-row"><span class="k">Yeast</span><div class="yeast">${esc(data.yeast)}</div></div>`;
       if (data.adjuncts?.length) rows += `<div class="recipe-row"><span class="k">Adjuncts</span>${chips(data.adjuncts)}</div>`;
-      if (rows) h += `<section class="p-section"><h3>General recipe</h3><div class="recipe">${rows}</div></section>`;
+      if (rows) h += `<section class="p-section"><h3>Brew it</h3><div class="recipe">${rows}</div></section>`;
 
       if (data.topSellers?.length) {
-        h += `<section class="p-section"><h3>Top sellers worldwide</h3><ol class="sellers">${data.topSellers.map((s, i) => `
+        h += `<section class="p-section"><h3>Best sellers</h3><ol class="sellers">${data.topSellers.map((s, i) => `
           <li><span class="rank" aria-hidden="true">${i + 1}</span><div><div class="s-name">${esc(s.name)}</div><div class="s-sub">${esc([s.brewery, s.country].filter(Boolean).join(" · "))}</div></div></li>`).join("")}
         </ol>`;
         const confText = { high: "Backed by published sales/volume data.", medium: "Among the most widely distributed examples; exact sales figures aren't published.", low: "Best-known commercial examples; niche style without public sales data." };
@@ -1182,7 +1190,7 @@
 
     if (style) {
       const sim = similarTo(d, 4);
-      if (sim.length) h += `<section class="p-section"><h3>Tastes similar</h3><div class="kids">${sim.map((n) =>
+      if (sim.length) h += `<section class="p-section"><h3>If you like this, try</h3><div class="kids">${sim.map((n) =>
         `<button type="button" class="kid" data-id="${esc(n.uid)}"><span class="swatch" style="background:${srmColor(n.srm)}"></span>${esc(n.data.name)}</button>`).join("")}</div></section>`;
     }
 
@@ -1368,8 +1376,8 @@
     return TASTES.filter((t) => tasteTargets[t.id] != null)
       .map((t) => ({ t, v: t.val(s, p), e: Math.abs(t.val(s, p) - tasteTargets[t.id]) }))
       .sort((a, b) => a.e - b.e).slice(0, 3)
-      .map(({ t, v }) => (v >= 0.6 ? t.more : v <= 0.4 ? t.less : `Medium ${t.name.toLowerCase()}`))
-      .join(" · ");
+      .map(({ t, v }) => (v >= 0.6 ? t.more : v <= 0.4 ? t.less : `medium ${t.name.toLowerCase()}`).toLowerCase())
+      .join(", ").replace(/^./, (c) => c.toUpperCase());
   }
   const realBeer = (b) => b && !/histor|discontinu|retired|no longer/i.test(`${b.name} ${b.brewery || ""} ${b.note || ""}`);
 
@@ -1470,16 +1478,17 @@
       // top styles: specific styles (not umbrella groups), then the real beers they're best known for
       const top = ranked.filter((r) => !hasKids(r.s)).slice(0, 3);
       const beers = top.flatMap((r) => (r.s.data.topSellers || []).filter(realBeer).slice(0, 3).map((b) => ({ b, s: r.s })));
-      res.innerHTML = `<h3>Your top styles</h3><ol class="finder-list">${top.map((r) => {
+      res.innerHTML = `<h3>Your pour</h3><ol class="pour">${top.map((r, i) => {
         const s = r.s;
-        return `<li><button type="button" class="match" data-id="${esc(s.uid)}">
-          <span class="glass-sm" style="background:linear-gradient(to bottom, ${srmColor(s.data.srm?.[0])}, ${srmColor(s.data.srm?.[1])})"></span>
-          <span class="m-body"><b>${esc(s.data.name)}</b><small>${esc(whyMatch(s))} · ${esc(fmtRange(s.data.abv, "%"))}</small></span>
-          <span class="m-pct">${Math.round(r.m * 100)}%</span></button></li>`;
+        return `<li><button type="button" class="pour-glass" data-id="${esc(s.uid)}" style="--i:${i}">
+          ${glassSvg(s, i === 0 ? 46 : 38, "pour-pint")}
+          <b>${esc(s.data.name)}</b><span class="pct">${Math.round(r.m * 100)}% match</span>
+          <small>${esc(whyMatch(s))}</small></button></li>`;
       }).join("")}</ol>
-      <h3>Beers to try</h3><ul class="beer-list">${beers.map(({ b, s }) => `<li><button type="button" class="beer" data-id="${esc(s.uid)}">
-          <span class="dot" style="background:${srmColor(s.srm)}"></span>
-          <span><b>${esc(b.name)}</b><small>${esc([b.brewery, b.country].filter(Boolean).join(" · "))} · ${esc(s.data.name)}</small></span></button></li>`).join("")}</ul>`;
+      <h3>Beers to look for</h3><ul class="beer-list">${beers.map(({ b, s }) => `<li><button type="button" class="beer" data-id="${esc(s.uid)}">
+          ${glassSvg(s, 14)}
+          <span><b>${esc(b.name)}</b><small>${esc([b.brewery, b.country].filter(Boolean).join(", "))}</small></span>
+          <span class="beer-style">${esc(s.data.name)}</span></button></li>`).join("")}</ul>`;
     }
     const peek = $("finderPeek"), best = ranked.find((r) => !hasKids(r.s));
     peek.hidden = !n || !best;
@@ -1550,19 +1559,20 @@
     list.sort(key === "match" ? (a, b) => scores.get(b) - scores.get(a) : SORTS[key]);
     $("listCount").textContent = `${list.length} ${list.length === 1 ? "style" : "styles"}${listFamily ? ` in ${listFamily.data.name}` : ""}${q ? ` matching “${searchInput.value.trim()}”` : ""}`;
     $("listGrid").innerHTML = list.map((s) => {
-      const fam = famOf(s), p = profileOf(s), top = s.data.topSellers?.[0];
+      const fam = famOf(s), p = profileOf(s), top = s.data.topSellers?.find(realBeer);
       const m = scores.get(s);
-      return `<button type="button" class="card" data-id="${esc(s.uid)}">
-        <span class="card-top"><span class="glass-sm" style="background:linear-gradient(to bottom, ${srmColor(s.data.srm?.[0])}, ${srmColor(s.data.srm?.[1])})"></span>
-          <span class="card-title"><b>${esc(s.data.name)}</b><small><i style="background:${fam.color}"></i>${esc(fam.data.name)}</small></span>
-          ${m != null ? `<span class="m-pct">${Math.round(m * 100)}%</span>` : ""}</span>
-        <span class="card-stats"><span>${esc(fmtRange(s.data.abv, "%"))} ABV</span><span>${esc(fmtRange(s.data.ibu))} IBU</span><span>${esc(VITALS.srm.word(mid(s.data.srm)))}</span></span>
-        ${flavorStrip(p)}
-        ${s.data.tryIf ? `<span class="card-try">Try it if ${esc(s.data.tryIf)}</span>` : `<span class="card-try">${esc(s.data.description || "")}</span>`}
-        ${top ? `<span class="card-top-seller">Best seller: <b>${esc(top.name)}</b></span>` : ""}
+      return `<button type="button" class="tap" data-id="${esc(s.uid)}">
+        ${glassSvg(s, 26, "tap-pint")}
+        <span class="tap-main">
+          <span class="tap-name">${esc(s.data.name)}</span>
+          <span class="tap-flavor">${esc(flavorWords(p).join(", ").toLowerCase().replace(/^./, (c) => c.toUpperCase()))}<span class="tap-fam" style="--fam:${fam.color}">${esc(fam.data.name)}</span></span>
+          ${s.data.tryIf ? `<span class="tap-try">Try it if ${esc(s.data.tryIf)}</span>` : ""}
+          ${top ? `<span class="tap-seller">Look for ${esc(top.name)}</span>` : ""}
+        </span>
+        <span class="tap-nums">${m != null ? `<span class="tap-match">${Math.round(m * 100)}%</span>` : ""}<span>${esc(fmtRange(s.data.abv, "%"))}</span><span>${esc(fmtRange(s.data.ibu))} IBU</span></span>
       </button>`;
-    }).join("") || `<p class="list-empty">No styles match. Try clearing the search or a filter.</p>`;
-    $("listGrid").querySelectorAll(".card").forEach((c) => c.addEventListener("click", () => {
+    }).join("") || `<p class="list-empty">No styles match. Clear the search or the family filter to see more.</p>`;
+    $("listGrid").querySelectorAll(".tap").forEach((c) => c.addEventListener("click", () => {
       const d = byId.get(c.dataset.id);
       select(d, "half", false);
     }));
@@ -1590,7 +1600,7 @@
         const n = byId.get(st.id);
         return `<button type="button" class="story" data-id="${st.id}"><span class="sw" style="background:${srmColor(n.srm)}"></span><span><b>${esc(st.title)}</b><small>${esc(st.sub)}</small></span><span class="cnt">${n.nDesc + 1}</span></button>`;
       }).join("")}</div>
-      <p class="stories-foot">${canHover ? "Or click any beer · scroll to zoom" : "Or tap any beer · pinch to zoom"}</p>`;
+      <p class="stories-foot">${canHover ? "Or click any beer. Scroll to zoom." : "Or tap any beer. Pinch to zoom."}</p>`;
     el.querySelectorAll(".story").forEach((b) => b.addEventListener("click", () => { hideIntro(); goTo(byId.get(b.dataset.id), true, false); }));
     el.querySelector(".stories-x").addEventListener("click", hideIntro);
     el.hidden = false;
