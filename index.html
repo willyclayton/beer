@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=202611242313">
+  <link rel="stylesheet" href="style.css?v=202611242359">
 </head>
 <body>
   <a class="skip-link" href="#searchInput">Skip to search</a>
@@ -57,6 +57,52 @@
   <main id="stage" class="stage">
     <svg id="chart" role="group" aria-label="Beer River: every beer style placed on a timeline, grouped into family streams, with lines tracing which styles descended from which. Use Tab to move between styles and Enter to open one."></svg>
     <nav class="traits" id="traits" aria-label="Shade styles by trait"></nav>
+    <section class="list-view" id="listView" aria-label="All styles as a list" hidden>
+      <div class="list-bar">
+        <span class="list-count" id="listCount" aria-live="polite"></span>
+        <label class="list-sort">Sort
+          <select id="listSort">
+            <option value="match">Best match</option>
+            <option value="name">Name</option>
+            <option value="abv">Strongest</option>
+            <option value="abv-asc">Lightest</option>
+            <option value="ibu">Most bitter</option>
+            <option value="srm">Darkest</option>
+            <option value="srm-asc">Palest</option>
+            <option value="year">Oldest</option>
+          </select>
+        </label>
+      </div>
+      <div class="list-grid" id="listGrid"></div>
+    </section>
+    <div class="dock" id="dock">
+      <div class="seg" role="tablist" aria-label="View">
+        <button type="button" role="tab" id="viewRiver" aria-selected="true">River</button>
+        <button type="button" role="tab" id="viewList" aria-selected="false">List</button>
+      </div>
+      <button type="button" class="find-btn" id="findBtn" aria-expanded="false" aria-controls="finder">
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M7 2h10l-1 4H8L7 2zm1.2 6h7.6l-1.1 12.2A2 2 0 0 1 12.7 22h-1.4a2 2 0 0 1-2-1.8L8.2 8z"/></svg>
+        <span>Find a beer</span><span class="badge" id="findBadge" hidden></span>
+      </button>
+      <button type="button" class="icon-btn traits-btn" id="traitsBtn" aria-expanded="false" aria-controls="traits" aria-label="Shade by trait" title="Shade by trait">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="9" cy="10" r="6" fill="currentColor" opacity=".5"/><circle cx="15" cy="14" r="6" fill="currentColor" opacity=".5"/></svg>
+        <span class="badge" hidden></span>
+      </button>
+    </div>
+    <section class="finder" id="finder" aria-label="Find a beer by taste" hidden>
+      <div class="finder-head">
+        <div><h2>Find a beer</h2><p>Tell it what you like. Matches light up.</p></div>
+        <button type="button" class="icon-btn" id="finderClose" aria-label="Close finder">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div class="finder-prefs" id="finderPrefs"></div>
+      <div class="finder-results">
+        <div class="finder-results-head"><h3 id="finderTitle">Pick a few tastes</h3><button type="button" class="link-btn" id="finderReset" hidden>Reset</button></div>
+        <ol class="finder-list" id="finderList"></ol>
+        <button type="button" class="link-btn finder-all" id="finderAll" hidden>See all matches as a list →</button>
+      </div>
+    </section>
     <div class="trait-hint" id="traitHint" aria-live="polite" hidden></div>
     <section class="stories" id="stories" aria-label="Guided stories" hidden></section>
     <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
@@ -74,6 +120,6 @@
   <div class="sab-probe" id="sabProbe" aria-hidden="true"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
-  <script src="app.js?v=202611242313"></script>
+  <script src="app.js?v=202611242359"></script>
 </body>
 </html>

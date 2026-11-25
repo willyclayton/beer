@@ -158,7 +158,7 @@
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { syncThemeChrome(); paint(); });
 
   // ---------- load ----------
-  fetch("data/beers.json?v=202611242313")
+  fetch("data/beers.json?v=202611242359")
     .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(init)
     .catch((err) => { $("loading").textContent = "Couldn't load beer data (" + err.message + ")"; console.error(err); });
@@ -182,6 +182,7 @@
     buildChart();
     buildFamilies();
     buildTraits();
+    buildFinder();
     buildSearch();
     const nStyles = styles.length;
     searchInput.placeholder = window.innerWidth < 420 ? `Search ${nStyles} styles…` : `Search ${nStyles} styles, beers, hops…`;
@@ -195,6 +196,7 @@
 
     const startId = decodeURIComponent(location.hash.slice(1));
     hint.hidden = true; // the stories card is the welcome now
+    if (lsGet("beer-view") === "list") setView("list");
     if (startId && byId.has(startId)) goTo(byId.get(startId), false);
     else { fitHome(0); entrance(); setTimeout(buildStories, reduceMotion ? 0 : 900); }
     window.addEventListener("hashchange", () => {
@@ -659,6 +661,7 @@
     homeK = vertical ? (v.x1 - v.x0) / (b.x1 - b.x0) : Math.min((v.x1 - v.x0) / (b.x1 - b.x0), (v.y1 - v.y0) / (b.y1 - b.y0));
     zoom.scaleExtent([homeK * 0.5, homeK * 14]).extent([[0, 0], [W, H]]);
     refreshView();
+    document.documentElement.style.setProperty("--top-h", Math.round(top) + "px");
     if (lastFit) refit(); else fitHome(0);
   }
 
@@ -1064,6 +1067,7 @@
       (c || searchInput).focus({ preventScroll: true });
     }
     if (rezoom) refit();
+    if (finderEl && !finderEl.hidden) updateFinder();
   }
   $("panelClose").addEventListener("click", () => closePanel());
   panel.addEventListener("click", (e) => {
@@ -1108,6 +1112,18 @@
     if (tags.length) h += `<div class="p-meta">${tags.map((t) => `<span class="tag">${t}</span>`).join("")}</div>`;
     h += `</div>`;
     if (data.description) h += `<p class="p-desc">${esc(data.description)}</p>`;
+    if (style && Array.isArray(data.abv)) {
+      const p = profileOf(d);
+      h += `<section class="p-section"><h3>Flavour profile</h3><div class="fprofile">${PROFILE_KEYS.map((k) =>
+        `<div class="frow"><span class="k">${PROFILE_LABELS[k]}</span><span class="fbar" role="img" aria-label="${PROFILE_LABELS[k]} ${p[k]} out of 5">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= p[k] ? "on" : ""}"></i>`).join("")}</span></div>`).join("")}</div>`;
+      if (data.notes) {
+        h += `<dl class="tasting">${["aroma", "flavor", "mouthfeel"].filter((k) => data.notes[k]).map((k) =>
+          `<div><dt>${k === "flavor" ? "Flavour" : k[0].toUpperCase() + k.slice(1)}</dt><dd>${esc(data.notes[k])}</dd></div>`).join("")}</dl>`;
+      }
+      if (data.tryIf) h += `<p class="tryif">🍺 Try it if ${esc(data.tryIf)}.</p>`;
+      if (!data.profile) h += `<p class="p-foot">Profile estimated from the style's stats.</p>`;
+      h += `</section>`;
+    }
 
     if (style) {
       h += `<section class="p-section"><h3>Vital stats</h3><div class="vitals">${vital("abv", data.abv)}${vital("ibu", data.ibu)}${vital("srm", data.srm)}</div></section>`;
@@ -1281,6 +1297,7 @@
       b.innerHTML = `<span class="dot" aria-hidden="true" style="background:${f.color}"></span>${esc(f.data.name)}`;
       b.addEventListener("click", () => {
         hideIntro();
+        if (currentView === "list") { listFamily = listFamily === f ? null : f; syncFamilyChips(); renderList(); return; }
         if (selected === f) { closePanel(false); fitHome(); return; }
         goTo(f);
       });
@@ -1291,40 +1308,209 @@
   // ---------- traits (Venn overlay) ----------
   function buildTraits() {
     const nav = $("traits");
-    nav.innerHTML = `<button type="button" class="traits-toggle" aria-expanded="false" aria-controls="traits"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="9" cy="10" r="6" fill="currentColor" opacity=".45"/><circle cx="15" cy="14" r="6" fill="currentColor" opacity=".45"/></svg><span>Shade by trait</span><span class="badge" hidden></span></button>` + TRAITS.map((t) => {
+    nav.innerHTML = TRAITS.map((t) => {
       const n = styles.filter((s) => s.traits.includes(t.id)).length;
       return `<button type="button" class="trait-chip" data-id="${t.id}" aria-pressed="false" style="--t:${t.color}"><span class="dot" aria-hidden="true"></span>${esc(t.name)}<span class="n">${n}</span></button>`;
     }).join("");
+    const tog = $("traitsBtn"), badge = tog.querySelector(".badge");
     nav.querySelectorAll(".trait-chip").forEach((b) => b.addEventListener("click", () => {
       const id = b.dataset.id;
       if (activeTraits.has(id)) activeTraits.delete(id); else activeTraits.add(id);
       b.setAttribute("aria-pressed", activeTraits.has(id) ? "true" : "false");
-      const badge = nav.querySelector(".badge");
       badge.hidden = !activeTraits.size; badge.textContent = activeTraits.size;
       hideIntro();
       drawBlobs();
     }));
-    const tog = nav.querySelector(".traits-toggle");
     tog.addEventListener("click", () => {
       const open = !nav.classList.contains("open");
       nav.classList.toggle("open", open);
       tog.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) setFinder(false);
       hideIntro();
     });
   }
 
+  // ---------- taste model: every style scored 0–1 on five things people actually choose by ----------
+  const PROFILE_KEYS = ["malt", "hops", "bitterness", "fruit", "roast", "sour", "sweet", "body"];
+  const PROFILE_LABELS = { malt: "Malt", hops: "Hop flavour", bitterness: "Bitterness", fruit: "Fruit", roast: "Roast", sour: "Sour", sweet: "Sweet", body: "Body" };
+  // stats-based estimate, used only if a style has no researched profile
+  function profileOf(s) {
+    if (s.data.profile) return s.data.profile;
+    const ibu = mid(s.data.ibu) || 0, srm = mid(s.data.srm) || 0, abv = mid(s.data.abv) || 0;
+    const q = (v) => clamp(Math.round(v), 0, 5);
+    return { malt: q(abv / 2), hops: q(ibu / 15), bitterness: q(ibu / 14), fruit: 2, roast: q((srm - 15) / 5),
+      sour: s.traits.includes("sour") ? 4 : 0, sweet: q(abv / 3 - ibu / 40), body: q(abv / 2) };
+  }
+  const TASTES = [
+    { id: "bitter", name: "Bitter", less: "Smooth", more: "Bitter", val: (s, p) => (clamp(mid(s.data.ibu) / 70, 0, 1) + p.bitterness / 5) / 2 },
+    { id: "strong", name: "Strength", less: "Light", more: "Strong", val: (s) => clamp((mid(s.data.abv) - 3) / 8, 0, 1) },
+    { id: "dark", name: "Colour & roast", less: "Pale", more: "Dark", val: (s, p) => (clamp(mid(s.data.srm) / 40, 0, 1) + p.roast / 5) / 2 },
+    { id: "sour", name: "Sour", less: "Not sour", more: "Tart", val: (s, p) => p.sour / 5 },
+    { id: "sweet", name: "Sweet & malty", less: "Dry", more: "Malty", val: (s, p) => (p.sweet / 5 + p.malt / 5) / 2 },
+    { id: "fruit", name: "Fruity & hoppy", less: "Clean", more: "Fruity", val: (s, p) => (p.fruit / 5 + p.hops / 5) / 2 },
+  ];
+  const tastePrefs = {}; // id → -1 (less) | 1 (more)
+  function matchScore(s) {
+    const on = TASTES.filter((t) => tastePrefs[t.id]);
+    if (!on.length) return null;
+    const p = profileOf(s);
+    const err = d3.mean(on, (t) => Math.abs(t.val(s, p) - (tastePrefs[t.id] > 0 ? 1 : 0)));
+    return 1 - err;
+  }
+  const rankable = () => styles.filter((s) => Array.isArray(s.data.abv));
+  function rankedMatches() {
+    return rankable().map((s) => ({ s, m: matchScore(s) })).filter((r) => r.m != null).sort((a, b) => b.m - a.m);
+  }
+
+  // ---------- finder sheet ----------
+  const finderEl = $("finder"), findBtn = $("findBtn");
+  function buildFinder() {
+    $("finderPrefs").innerHTML = TASTES.map((t) => `<div class="pref" data-id="${t.id}">
+        <span class="pref-name">${esc(t.name)}</span>
+        <div class="tri" role="radiogroup" aria-label="${esc(t.name)}">
+          <button type="button" role="radio" data-v="-1" aria-checked="false">${esc(t.less)}</button>
+          <button type="button" role="radio" data-v="0" aria-checked="true">Any</button>
+          <button type="button" role="radio" data-v="1" aria-checked="false">${esc(t.more)}</button>
+        </div></div>`).join("");
+    $("finderPrefs").querySelectorAll(".pref").forEach((row) => row.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      const v = +b.dataset.v;
+      if (v) tastePrefs[row.dataset.id] = v; else delete tastePrefs[row.dataset.id];
+      row.querySelectorAll("button").forEach((x) => x.setAttribute("aria-checked", x === b ? "true" : "false"));
+      updateFinder();
+    })));
+    findBtn.addEventListener("click", () => setFinder(finderEl.hidden));
+    $("finderClose").addEventListener("click", () => setFinder(false));
+    $("finderReset").addEventListener("click", () => {
+      Object.keys(tastePrefs).forEach((k) => delete tastePrefs[k]);
+      $("finderPrefs").querySelectorAll("button").forEach((x) => x.setAttribute("aria-checked", x.dataset.v === "0" ? "true" : "false"));
+      updateFinder();
+    });
+    $("finderAll").addEventListener("click", () => { setView("list"); $("listSort").value = "match"; renderList(); if (!sidePanel()) setFinder(false); });
+  }
+  function setFinder(open) {
+    finderEl.hidden = !open;
+    findBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    document.body.classList.toggle("finder-open", open);
+    if (open) {
+      hideIntro();
+      const tr = $("traits"); tr.classList.remove("open"); $("traitsBtn").setAttribute("aria-expanded", "false");
+      if (!sidePanel() && panelState !== "closed") closePanel(false);
+    }
+    updateFinder(open);
+  }
+  function updateFinder(open = !finderEl.hidden) {
+    const ranked = rankedMatches();
+    const n = Object.keys(tastePrefs).length;
+    const badge = $("findBadge"); badge.hidden = !n; badge.textContent = n;
+    $("finderReset").hidden = !n;
+    $("finderAll").hidden = !n;
+    $("finderTitle").textContent = n ? "Best matches" : "Pick a few tastes";
+    $("finderList").innerHTML = n ? ranked.slice(0, 8).map((r) => {
+      const s = r.s;
+      return `<li><button type="button" class="match" data-id="${esc(s.uid)}">
+        <span class="glass-sm" style="background:linear-gradient(to bottom, ${srmColor(s.data.srm?.[0])}, ${srmColor(s.data.srm?.[1])})"></span>
+        <span class="m-body"><b>${esc(s.data.name)}</b><small>${esc(fmtRange(s.data.abv, "%"))}${s.data.tryIf ? ` · Try it if ${esc(s.data.tryIf)}` : ""}</small></span>
+        <span class="m-pct">${Math.round(r.m * 100)}%</span></button></li>`;
+    }).join("") : `<li class="finder-empty">Choose “Less” or “More” on anything you care about. Everything else stays “Any”.</li>`;
+    $("finderList").querySelectorAll(".match").forEach((b) => b.addEventListener("click", () => {
+      const d = byId.get(b.dataset.id);
+      if (!sidePanel()) setFinder(false);
+      goTo(d, true, false);
+    }));
+    // light up the matches on the river while the finder is open
+    if (open && n && !selected) setLit(new Set(ranked.slice(0, 20).map((r) => r.s)));
+    else if (!selected) setLit(null);
+    if (currentView === "list") renderList();
+  }
+
+  // ---------- list view ----------
+  let currentView = "river";
+  let listFamily = null;
+  function setView(v) {
+    currentView = v;
+    document.body.classList.toggle("view-list", v === "list");
+    $("viewRiver").setAttribute("aria-selected", v === "river" ? "true" : "false");
+    $("viewList").setAttribute("aria-selected", v === "list" ? "true" : "false");
+    $("listView").hidden = v !== "list";
+    lsSet("beer-view", v);
+    hideIntro();
+    if (v === "list") { $("traits").classList.remove("open"); renderList(); }
+    else { listFamily = null; syncFamilyChips(); requestAnimationFrame(() => { resize(); }); }
+  }
+  function syncFamilyChips() {
+    familiesNav.querySelectorAll(".fam-chip").forEach((c) => c.setAttribute("aria-current", currentView === "list" && listFamily && c.dataset.id === listFamily.uid ? "true" : "false"));
+  }
+  const SORTS = {
+    name: (a, b) => a.data.name.localeCompare(b.data.name),
+    abv: (a, b) => mid(b.data.abv) - mid(a.data.abv),
+    "abv-asc": (a, b) => mid(a.data.abv) - mid(b.data.abv),
+    ibu: (a, b) => mid(b.data.ibu) - mid(a.data.ibu),
+    srm: (a, b) => mid(b.data.srm) - mid(a.data.srm),
+    "srm-asc": (a, b) => mid(a.data.srm) - mid(b.data.srm),
+    year: (a, b) => a.year - b.year,
+  };
+  // the profile in three plain words, strongest first (e.g. "Roasty · Bitter · Full-bodied")
+  const FLAVOR_WORDS = { malt: "Malty", hops: "Hoppy", bitterness: "Bitter", fruit: "Fruity", roast: "Roasty", sour: "Tart", sweet: "Sweet", body: "Full-bodied" };
+  function flavorWords(p) {
+    const words = PROFILE_KEYS.filter((k) => p[k] >= 3).sort((a, b) => p[b] - p[a]).slice(0, 3).map((k) => FLAVOR_WORDS[k]);
+    if (words.length < 3 && p.body <= 1) words.push("Light-bodied");
+    if (words.length < 3 && p.sweet <= 1 && p.sour < 3) words.push("Dry");
+    if (words.length < 3 && p.bitterness <= 1 && p.sour < 3) words.push("Smooth");
+    return words.slice(0, 3);
+  }
+  function flavorStrip(p) {
+    return `<span class="fwords">${flavorWords(p).map((w) => `<span>${w}</span>`).join("")}</span>`;
+  }
+  function renderList() {
+    if (currentView !== "list") return;
+    const q = searchInput.value.trim().toLowerCase();
+    let list = rankable();
+    if (listFamily) list = list.filter((s) => famOf(s) === listFamily);
+    if (q) list = list.filter((s) => [s.data.name, s.data.description, ...(s.data.topSellers || []).map((x) => x.name), ...(s.data.hops || [])]
+      .some((x) => x && String(x).toLowerCase().includes(q)));
+    const sortSel = $("listSort");
+    const hasPrefs = Object.keys(tastePrefs).length > 0;
+    sortSel.querySelector('option[value="match"]').disabled = !hasPrefs;
+    let key = sortSel.value;
+    if (key === "match" && !hasPrefs) { key = "name"; sortSel.value = "name"; }
+    const scores = new Map(list.map((s) => [s, matchScore(s)]));
+    list.sort(key === "match" ? (a, b) => scores.get(b) - scores.get(a) : SORTS[key]);
+    $("listCount").textContent = `${list.length} ${list.length === 1 ? "style" : "styles"}${listFamily ? ` in ${listFamily.data.name}` : ""}${q ? ` matching “${searchInput.value.trim()}”` : ""}`;
+    $("listGrid").innerHTML = list.map((s) => {
+      const fam = famOf(s), p = profileOf(s), top = s.data.topSellers?.[0];
+      const m = scores.get(s);
+      return `<button type="button" class="card" data-id="${esc(s.uid)}">
+        <span class="card-top"><span class="glass-sm" style="background:linear-gradient(to bottom, ${srmColor(s.data.srm?.[0])}, ${srmColor(s.data.srm?.[1])})"></span>
+          <span class="card-title"><b>${esc(s.data.name)}</b><small><i style="background:${fam.color}"></i>${esc(fam.data.name)}</small></span>
+          ${m != null ? `<span class="m-pct">${Math.round(m * 100)}%</span>` : ""}</span>
+        <span class="card-stats"><span>${esc(fmtRange(s.data.abv, "%"))} ABV</span><span>${esc(fmtRange(s.data.ibu))} IBU</span><span>${esc(VITALS.srm.word(mid(s.data.srm)))}</span></span>
+        ${flavorStrip(p)}
+        ${s.data.tryIf ? `<span class="card-try">Try it if ${esc(s.data.tryIf)}</span>` : `<span class="card-try">${esc(s.data.description || "")}</span>`}
+        ${top ? `<span class="card-top-seller">Best seller: <b>${esc(top.name)}</b></span>` : ""}
+      </button>`;
+    }).join("") || `<p class="list-empty">No styles match. Try clearing the search or a filter.</p>`;
+    $("listGrid").querySelectorAll(".card").forEach((c) => c.addEventListener("click", () => {
+      const d = byId.get(c.dataset.id);
+      select(d, "half", false);
+    }));
+  }
+  $("viewRiver").addEventListener("click", () => setView("river"));
+  $("viewList").addEventListener("click", () => setView("list"));
+  $("listSort").addEventListener("change", renderList);
+
   // nearest styles by ABV / bitterness / colour (normalised), skipping umbrella styles and itself
   function similarTo(d, n) {
-    const v = (s) => [mid(s.data.abv) / 12, mid(s.data.ibu) / 80, mid(s.data.srm) / 40];
+    const v = (s) => { const p = profileOf(s); return [mid(s.data.abv) / 12, mid(s.data.ibu) / 80, mid(s.data.srm) / 40, ...PROFILE_KEYS.map((k) => p[k] / 5 * 0.6)]; };
     const a = v(d);
     return styles.filter((s) => s !== d && !hasKids(s) && Array.isArray(s.data.abv))
-      .map((s) => { const b = v(s); return { s, dist: Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) }; })
+      .map((s) => { const b = v(s); return { s, dist: Math.hypot(...a.map((x, i) => x - b[i])) }; })
       .sort((x, y) => x.dist - y.dist).slice(0, n).map((x) => x.s);
   }
 
   // ---------- stories: a friendly way in ----------
   function buildStories() {
     const el = $("stories");
+    if (currentView === "list") return;
     const list = STORIES.filter((st) => byId.has(st.id));
     el.innerHTML = `<div class="stories-head"><span>Start with a story</span><button type="button" class="icon-btn stories-x" aria-label="Dismiss">×</button></div>
       <div class="stories-list">${list.map((st) => {
@@ -1378,6 +1564,7 @@
     return esc(name.slice(0, i)) + "<mark>" + esc(name.slice(i, i + q.length)) + "</mark>" + esc(name.slice(i + q.length));
   }
   function runSearch() {
+    if (currentView === "list") { hideResults(); renderList(); return; }
     const q = searchInput.value.trim().toLowerCase();
     const qn = slug(q).replace(/-/g, " ");
     if (!q) { hideResults(); return; }
