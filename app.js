@@ -158,7 +158,7 @@
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { syncThemeChrome(); paint(); });
 
   // ---------- load ----------
-  fetch("data/beers.json?v=202611242359")
+  fetch("data/beers.json?v=202611250322")
     .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(init)
     .catch((err) => { $("loading").textContent = "Couldn't load beer data (" + err.message + ")"; console.error(err); });
@@ -197,7 +197,8 @@
     const startId = decodeURIComponent(location.hash.slice(1));
     hint.hidden = true; // the stories card is the welcome now
     if (lsGet("beer-view") === "list") setView("list");
-    if (startId && byId.has(startId)) goTo(byId.get(startId), false);
+    if (readTestHash(startId)) { fitHome(0); setFinder(true); }
+    else if (startId && byId.has(startId)) goTo(byId.get(startId), false);
     else { fitHome(0); entrance(); setTimeout(buildStories, reduceMotion ? 0 : 900); }
     window.addEventListener("hashchange", () => {
       const id = decodeURIComponent(location.hash.slice(1));
@@ -1349,44 +1350,99 @@
     { id: "sweet", name: "Sweet & malty", less: "Dry", more: "Malty", val: (s, p) => (p.sweet / 5 + p.malt / 5) / 2 },
     { id: "fruit", name: "Fruity & hoppy", less: "Clean", more: "Fruity", val: (s, p) => (p.fruit / 5 + p.hops / 5) / 2 },
   ];
-  const tastePrefs = {}; // id → -1 (less) | 1 (more)
+  const tasteTargets = {}; // id → 0..1 (unset = "don't mind")
+  const nTargets = () => Object.keys(tasteTargets).length;
   function matchScore(s) {
-    const on = TASTES.filter((t) => tastePrefs[t.id]);
+    const on = TASTES.filter((t) => tasteTargets[t.id] != null);
     if (!on.length) return null;
     const p = profileOf(s);
-    const err = d3.mean(on, (t) => Math.abs(t.val(s, p) - (tastePrefs[t.id] > 0 ? 1 : 0)));
-    return 1 - err;
+    return 1 - d3.mean(on, (t) => Math.abs(t.val(s, p) - tasteTargets[t.id]));
   }
   const rankable = () => styles.filter((s) => Array.isArray(s.data.abv));
   function rankedMatches() {
     return rankable().map((s) => ({ s, m: matchScore(s) })).filter((r) => r.m != null).sort((a, b) => b.m - a.m);
   }
+  // why a style matched: the user's set tastes it hits most closely, in plain words
+  function whyMatch(s) {
+    const p = profileOf(s);
+    return TASTES.filter((t) => tasteTargets[t.id] != null)
+      .map((t) => ({ t, v: t.val(s, p), e: Math.abs(t.val(s, p) - tasteTargets[t.id]) }))
+      .sort((a, b) => a.e - b.e).slice(0, 3)
+      .map(({ t, v }) => (v >= 0.6 ? t.more : v <= 0.4 ? t.less : `Medium ${t.name.toLowerCase()}`))
+      .join(" · ");
+  }
+  const realBeer = (b) => b && !/histor|discontinu|retired|no longer/i.test(`${b.name} ${b.brewery || ""} ${b.note || ""}`);
 
-  // ---------- finder sheet ----------
+  // ---------- beer test (taste sliders → styles → beers to try) ----------
+  const PRESETS = [
+    { id: "lager", name: "I like lagers", t: { bitter: 0.35, strong: 0.3, dark: 0.05, sour: 0, sweet: 0.2, fruit: 0.1 } },
+    { id: "ipa", name: "I like IPAs", t: { bitter: 0.85, strong: 0.6, dark: 0.15, sour: 0, fruit: 0.8, sweet: 0.2 } },
+    { id: "stout", name: "I like stouts", t: { bitter: 0.55, strong: 0.3, dark: 1, sour: 0, sweet: 0.4, fruit: 0.25 } },
+    { id: "sour", name: "I like sours", t: { bitter: 0.1, dark: 0.15, sour: 1, fruit: 0.6 } },
+    { id: "wheat", name: "Light & fruity", t: { bitter: 0.1, strong: 0.3, dark: 0.1, sour: 0, fruit: 0.7, sweet: 0.4 } },
+  ];
   const finderEl = $("finder"), findBtn = $("findBtn");
   function buildFinder() {
-    $("finderPrefs").innerHTML = TASTES.map((t) => `<div class="pref" data-id="${t.id}">
-        <span class="pref-name">${esc(t.name)}</span>
-        <div class="tri" role="radiogroup" aria-label="${esc(t.name)}">
-          <button type="button" role="radio" data-v="-1" aria-checked="false">${esc(t.less)}</button>
-          <button type="button" role="radio" data-v="0" aria-checked="true">Any</button>
-          <button type="button" role="radio" data-v="1" aria-checked="false">${esc(t.more)}</button>
-        </div></div>`).join("");
-    $("finderPrefs").querySelectorAll(".pref").forEach((row) => row.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
-      const v = +b.dataset.v;
-      if (v) tastePrefs[row.dataset.id] = v; else delete tastePrefs[row.dataset.id];
-      row.querySelectorAll("button").forEach((x) => x.setAttribute("aria-checked", x === b ? "true" : "false"));
+    $("finderPresets").innerHTML = PRESETS.map((pr) => `<button type="button" class="preset" data-id="${pr.id}">${esc(pr.name)}</button>`).join("")
+      + `<button type="button" class="preset" data-id="random">🎲 Surprise me</button>`;
+    $("finderPrefs").innerHTML = TASTES.map((t) => `<div class="slider unset" data-id="${t.id}">
+        <div class="slider-top"><label for="sl-${t.id}">${esc(t.name)}</label><span class="slider-val" aria-hidden="true">Don't mind</span>
+          <button type="button" class="slider-x" aria-label="Don't mind ${esc(t.name.toLowerCase())}" hidden>×</button></div>
+        <input type="range" id="sl-${t.id}" min="0" max="10" step="1" value="5" aria-valuetext="Don't mind">
+        <div class="slider-ends" aria-hidden="true"><span>${esc(t.less)}</span><span>${esc(t.more)}</span></div>
+      </div>`).join("");
+    $("finderPrefs").querySelectorAll(".slider").forEach((row) => {
+      const input = row.querySelector("input"), id = row.dataset.id;
+      const set = () => { tasteTargets[id] = +input.value / 10; syncSlider(row); updateFinder(); };
+      input.addEventListener("input", set);
+      input.addEventListener("pointerdown", () => { if (tasteTargets[id] == null) requestAnimationFrame(set); });
+      row.querySelector(".slider-x").addEventListener("click", () => { delete tasteTargets[id]; input.value = 5; syncSlider(row); updateFinder(); });
+    });
+    $("finderPresets").querySelectorAll(".preset").forEach((b) => b.addEventListener("click", () => {
+      Object.keys(tasteTargets).forEach((k) => delete tasteTargets[k]);
+      if (b.dataset.id === "random") {
+        d3.shuffle(TASTES.slice()).slice(0, 3).forEach((t) => { tasteTargets[t.id] = Math.round(Math.random() * 10) / 10; });
+        if (tasteTargets.sour == null) tasteTargets.sour = 0;
+      } else Object.assign(tasteTargets, PRESETS.find((p) => p.id === b.dataset.id).t);
+      syncAllSliders();
       updateFinder();
-    })));
+    }));
     findBtn.addEventListener("click", () => setFinder(finderEl.hidden));
+    $("finderPeek").addEventListener("click", () => $("finderResults").scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" }));
+    // hide the peek bar once the results themselves are on screen
+    new IntersectionObserver(([e]) => finderEl.classList.toggle("results-visible", e.isIntersecting), { root: finderEl, threshold: 0.15 }).observe($("finderResults"));
     $("finderClose").addEventListener("click", () => setFinder(false));
     $("finderReset").addEventListener("click", () => {
-      Object.keys(tastePrefs).forEach((k) => delete tastePrefs[k]);
-      $("finderPrefs").querySelectorAll("button").forEach((x) => x.setAttribute("aria-checked", x.dataset.v === "0" ? "true" : "false"));
+      Object.keys(tasteTargets).forEach((k) => delete tasteTargets[k]);
+      syncAllSliders();
       updateFinder();
     });
     $("finderAll").addEventListener("click", () => { setView("list"); $("listSort").value = "match"; renderList(); if (!sidePanel()) setFinder(false); });
   }
+  function syncSlider(row) {
+    const id = row.dataset.id, t = TASTES.find((x) => x.id === id), v = tasteTargets[id];
+    const input = row.querySelector("input");
+    row.classList.toggle("unset", v == null);
+    row.querySelector(".slider-x").hidden = v == null;
+    if (v != null) input.value = Math.round(v * 10);
+    const word = v == null ? "Don't mind" : v >= 0.7 ? t.more : v <= 0.3 ? t.less : "In between";
+    row.querySelector(".slider-val").textContent = word;
+    input.setAttribute("aria-valuetext", v == null ? "Don't mind" : `${word}, ${Math.round(v * 10)} of 10`);
+    input.style.setProperty("--pct", `${(v == null ? 0.5 : v) * 100}%`);
+  }
+  const syncAllSliders = () => $("finderPrefs").querySelectorAll(".slider").forEach(syncSlider);
+
+  // remember a test result in the link: #test= one char per taste ('-' unset, 0–9, 'x' = 10)
+  function testHash() {
+    return "test=" + TASTES.map((t) => (tasteTargets[t.id] == null ? "-" : (v => (v === 10 ? "x" : String(v)))(Math.round(tasteTargets[t.id] * 10)))).join("");
+  }
+  function readTestHash(h) {
+    const m = /^test=([-0-9x]{6})$/.exec(h || "");
+    if (!m) return false;
+    [...m[1]].forEach((c, i) => { if (c !== "-") tasteTargets[TASTES[i].id] = (c === "x" ? 10 : +c) / 10; });
+    return true;
+  }
+
   function setFinder(open) {
     finderEl.hidden = !open;
     findBtn.setAttribute("aria-expanded", open ? "true" : "false");
@@ -1395,29 +1451,46 @@
       hideIntro();
       const tr = $("traits"); tr.classList.remove("open"); $("traitsBtn").setAttribute("aria-expanded", "false");
       if (!sidePanel() && panelState !== "closed") closePanel(false);
+      syncAllSliders();
+    } else if (/^#test=/.test(location.hash)) {
+      try { history.replaceState(null, "", location.pathname + location.search); } catch { /* ignore */ }
     }
     updateFinder(open);
   }
   function updateFinder(open = !finderEl.hidden) {
     const ranked = rankedMatches();
-    const n = Object.keys(tastePrefs).length;
+    const n = nTargets();
     const badge = $("findBadge"); badge.hidden = !n; badge.textContent = n;
     $("finderReset").hidden = !n;
     $("finderAll").hidden = !n;
-    $("finderTitle").textContent = n ? "Best matches" : "Pick a few tastes";
-    $("finderList").innerHTML = n ? ranked.slice(0, 8).map((r) => {
-      const s = r.s;
-      return `<li><button type="button" class="match" data-id="${esc(s.uid)}">
-        <span class="glass-sm" style="background:linear-gradient(to bottom, ${srmColor(s.data.srm?.[0])}, ${srmColor(s.data.srm?.[1])})"></span>
-        <span class="m-body"><b>${esc(s.data.name)}</b><small>${esc(fmtRange(s.data.abv, "%"))}${s.data.tryIf ? ` · Try it if ${esc(s.data.tryIf)}` : ""}</small></span>
-        <span class="m-pct">${Math.round(r.m * 100)}%</span></button></li>`;
-    }).join("") : `<li class="finder-empty">Choose “Less” or “More” on anything you care about. Everything else stays “Any”.</li>`;
-    $("finderList").querySelectorAll(".match").forEach((b) => b.addEventListener("click", () => {
+    const res = $("finderResults");
+    if (!n) {
+      res.innerHTML = `<p class="finder-empty">Move any slider you have an opinion on, or tap a starting point above. Untouched sliders don't count.</p>`;
+    } else {
+      // top styles: specific styles (not umbrella groups), then the real beers they're best known for
+      const top = ranked.filter((r) => !hasKids(r.s)).slice(0, 3);
+      const beers = top.flatMap((r) => (r.s.data.topSellers || []).filter(realBeer).slice(0, 3).map((b) => ({ b, s: r.s })));
+      res.innerHTML = `<h3>Your top styles</h3><ol class="finder-list">${top.map((r) => {
+        const s = r.s;
+        return `<li><button type="button" class="match" data-id="${esc(s.uid)}">
+          <span class="glass-sm" style="background:linear-gradient(to bottom, ${srmColor(s.data.srm?.[0])}, ${srmColor(s.data.srm?.[1])})"></span>
+          <span class="m-body"><b>${esc(s.data.name)}</b><small>${esc(whyMatch(s))} · ${esc(fmtRange(s.data.abv, "%"))}</small></span>
+          <span class="m-pct">${Math.round(r.m * 100)}%</span></button></li>`;
+      }).join("")}</ol>
+      <h3>Beers to try</h3><ul class="beer-list">${beers.map(({ b, s }) => `<li><button type="button" class="beer" data-id="${esc(s.uid)}">
+          <span class="dot" style="background:${srmColor(s.srm)}"></span>
+          <span><b>${esc(b.name)}</b><small>${esc([b.brewery, b.country].filter(Boolean).join(" · "))} · ${esc(s.data.name)}</small></span></button></li>`).join("")}</ul>`;
+    }
+    const peek = $("finderPeek"), best = ranked.find((r) => !hasKids(r.s));
+    peek.hidden = !n || !best;
+    if (best) peek.innerHTML = `<span>Top match</span><b>${esc(best.s.data.name)}</b><span class="m-pct">${Math.round(best.m * 100)}%</span><span class="go">See beers ↓</span>`;
+    res.querySelectorAll("[data-id]").forEach((b) => b.addEventListener("click", () => {
       const d = byId.get(b.dataset.id);
       if (!sidePanel()) setFinder(false);
       goTo(d, true, false);
     }));
-    // light up the matches on the river while the finder is open
+    if (open && n) { try { history.replaceState(null, "", "#" + testHash()); } catch { /* ignore */ } }
+    // light up the matches on the river while the test is open
     if (open && n && !selected) setLit(new Set(ranked.slice(0, 20).map((r) => r.s)));
     else if (!selected) setLit(null);
     if (currentView === "list") renderList();
@@ -1469,7 +1542,7 @@
     if (q) list = list.filter((s) => [s.data.name, s.data.description, ...(s.data.topSellers || []).map((x) => x.name), ...(s.data.hops || [])]
       .some((x) => x && String(x).toLowerCase().includes(q)));
     const sortSel = $("listSort");
-    const hasPrefs = Object.keys(tastePrefs).length > 0;
+    const hasPrefs = nTargets() > 0;
     sortSel.querySelector('option[value="match"]').disabled = !hasPrefs;
     let key = sortSel.value;
     if (key === "match" && !hasPrefs) { key = "name"; sortSel.value = "name"; }
